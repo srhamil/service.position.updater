@@ -1,0 +1,2 @@
+v0.0.1 (May 18, 2020)
+- Kodi 18 Compatible
