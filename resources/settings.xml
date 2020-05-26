@@ -3,16 +3,28 @@
   <category label="32000">
     <setting id="xbmcip"           type="ipaddress" label="32001" default="127.0.0.1" />
     <setting id="xbmcport"         type="number"    label="32002" default="9090" />
-    <setting id="updateonpause"    type="bool"      label="32003" default="true" />
-    <setting id="updateonseek"     type="bool"      label="32006" default="true" />
-    <setting id="updateperiodically" type="bool"      label="32004" default="true" />
-    <setting id="updateperiod"     type="slider"    label="32005" option="int" default="60" range="1,600" enable="eq(-1,true)" />
-    
+    <setting type="sep" />
     <setting label="32100" type="lsep" />
     <setting label="32101" type="lsep" />
     <setting label="32102" type="lsep" />
     <setting type="sep" />
     <setting label="32103" type="lsep" />
     <setting label="32104" type="lsep" />
+  </category>
+  
+
+  <category label="32011">
+    <setting label="32010" type="lsep" />
+    <setting id="updateonpause"    type="bool"      label="32003" default="true" />
+    <setting id="updateonseek"     type="bool"      label="32006" default="true" />
+    <setting id="updateperiodically" type="bool"    label="32004" default="true" />
+    <setting id="updateperiod"     type="slider"    label="32005" option="int" default="60" range="1,600" enable="eq(-1,true)" />
+  </category>
+
+  <category label="32012">
+    <setting label="32008" type="lsep" />
+    <setting id="updatenfoonpause" type="bool" label="32003" default="false" />
+    <setting id="updatenfoonseek" type="bool" label="32006" default="false" />
+    <setting id="updatenfoonstop" type="bool" label="32007" default="false" />  
   </category>
 </settings>
