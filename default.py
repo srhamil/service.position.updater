@@ -138,17 +138,17 @@ class ResumePositionUpdater():
  
     def CommonSaveOnEventProcessing(self,playerState,jsonmsg):
         if  playerState.updateLock.acquire(blocking=False):
-            #xbmc.log("{0} thread {1} acquired lock)".format(addon_name,threading.current_thread().name),xbmc.LOGDEBUG)
+            xbmc.log("%s thread %s acquired lock" % (addon_name,threading.current_thread().name),xbmc.LOGDEBUG)
             try:
                 self.logEvent(jsonmsg)
                 position = self.GetPosition(playerState.playerid)
                 if position:self.SavePosition(playerState.mediaType, playerState.mediaId, position,playerState.playerid)
             finally:
                 playerState.updateLock.release()
-                #xbmc.log("{0} thread {1} released lock)".format(addon_name,threading.current_thread().name),xbmc.LOGDEBUG)
+                xbmc.log("%s thread %s released lock" % (addon_name,threading.current_thread().name),xbmc.LOGDEBUG)
         else:
             pass
-            #xbmc.log("{0} thread {1} failed to acquire lock)".format(addon_name,threading.current_thread().name),xbmc.LOGDEBUG)
+            xbmc.log("%s thread %s failed to acquire lock" % (addon_name,threading.current_thread().name),xbmc.LOGDEBUG)
 
     def selectPlayerStateForMessage(self,jsonmsg):
         if jsonmsg["method"] == "Player.OnStop":
@@ -273,7 +273,7 @@ class ResumePositionUpdater():
     # save the position to the database (unless another thread is already doing so 
     def SavePosition(self, mediaType, mediaId, position,playerId):
         if self.player[playerId].updateLock.acquire(blocking=False):
-            xbmc.log("%s thread %s acquired lock)" % (addon_name,threading.current_thread().name),xbmc.LOGDEBUG)
+            xbmc.log("%s thread %s acquired lock" % (addon_name,threading.current_thread().name),xbmc.LOGDEBUG)
             try :
                 if mediaType == 'movie':
                     self.SaveMoviePosition(mediaId, position)
@@ -287,10 +287,10 @@ class ResumePositionUpdater():
                     xbmc.log("%s media type %s not supported by SavePosition)" % (addon_name,mediaType),xbmc.LOGDEBUG)
             finally:
                 self.player[playerId].updateLock.release()
-                xbmc.log("%s thread %s released lock)" % (addon_name,threading.current_thread().name),xbmc.LOGDEBUG)
+                xbmc.log("%s thread %s released lock" % (addon_name,threading.current_thread().name),xbmc.LOGDEBUG)
         else:
             pass
-            xbmc.log("%s thread %s failed to acquire lock)" % (addon_name,threading.current_thread().name),xbmc.LOGDEBUG)
+            xbmc.log("%s thread %s failed to acquire lock" % (addon_name,threading.current_thread().name),xbmc.LOGDEBUG)
 
     # get the position from the player. Returns a tuple (int time, int totaltime) or None
     def GetPosition(self, playerid):
