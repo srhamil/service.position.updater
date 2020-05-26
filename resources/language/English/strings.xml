@@ -5,7 +5,7 @@
   <string id="32002">XBMC JSONRPC TCP Port</string>
   <string id="32003">Update on pause</string>
   <string id="32004">Update periodically</string>
-  <string id="32005">Update period in minutes</string>
+  <string id="32005">Update period in seconds</string>
   <string id="32006">Update on seek</string>
   
   <string id="32100">Description:</string>	
