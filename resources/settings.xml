@@ -6,7 +6,7 @@
     <setting id="updateonpause"    type="bool"      label="32003" default="true" />
     <setting id="updateonseek"     type="bool"      label="32006" default="true" />
     <setting id="updateperiodically" type="bool"      label="32004" default="true" />
-    <setting id="updateperiod"     type="slider"    label="32005" option="int" default="5" range="1,30" enable="eq(-1,true)" />
+    <setting id="updateperiod"     type="slider"    label="32005" option="int" default="60" range="1,600" enable="eq(-1,true)" />
     
     <setting label="32100" type="lsep" />
     <setting label="32101" type="lsep" />
