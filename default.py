@@ -40,12 +40,14 @@ class ResumePositionUpdater():
         updateLock = threading.RLock()
         mediaType = None
         mediaId = None
+        position=None
+        stopping = False
         def __init__(self, playerid):
             self.playerid = playerid
 
         def __str__(self):
-            return 'PlayerState{playerid=%d,running=%s,mediaType=%s,mediaId=%d}'% \
-                (self.playerid,self.running,self.mediaType,self.mediaId)
+            return 'PlayerState{playerid=%d,running=%s,stopping=%s,mediaType=%s,mediaId=%d,position=%s}'% \
+                (self.playerid,self.running,self.stopping,self.mediaType,self.mediaId,self.position)
         def __repr__(self):
             return self.__str__()
 
@@ -113,12 +115,14 @@ class ResumePositionUpdater():
 
     def OnSeek(self,jsonmsg):
         updateOnSeek = addon.getSetting('updateonseek') == 'true'
+        updateNfoOnSeek = addon.getSetting('updatenfoonseek') == 'true'
         playerState = self.selectPlayerStateForMessage(jsonmsg)
-        if ( updateOnSeek ) : self.CommonSaveOnEventProcessing(playerState,jsonmsg)
+        if ( updateOnSeek ) : self.CommonSaveOnEventProcessing(playerState,jsonmsg,updateOnSeek,updateNfoOnSeek)
        
     def OnStop(self,jsonmsg):
         self.logEvent(jsonmsg)
         playerState = self.selectPlayerStateForMessage(jsonmsg)
+        playerState.stopping = True
         self.stopTimer(playerState)
 
     def OnPause(self,jsonmsg):
@@ -126,7 +130,8 @@ class ResumePositionUpdater():
         playerState = self.selectPlayerStateForMessage(jsonmsg)
         self.stopTimer(playerState)
         updateOnPause = addon.getSetting('updateonpause') == 'true'
-        if  updateOnPause : self.CommonSaveOnEventProcessing(playerState,jsonmsg)
+        updateNfoOnPause = addon.getSetting('updateonpause') == 'true'
+        if  updateOnPause : self.CommonSaveOnEventProcessing(playerState,jsonmsg,updateOnPause,updateNfoOnPause)
        
     def OnPlay(self,jsonmsg):
         self.logEvent(jsonmsg)
@@ -136,13 +141,14 @@ class ResumePositionUpdater():
         self.logEvent(jsonmsg)
         self.handlePlayerStarting(jsonmsg)
  
-    def CommonSaveOnEventProcessing(self,playerState,jsonmsg):
+    def CommonSaveOnEventProcessing(self,playerState,jsonmsg,saveToDb,saveToNfo):
         if  playerState.updateLock.acquire(blocking=False):
             xbmc.log("%s thread %s acquired lock" % (addon_name,threading.current_thread().name),xbmc.LOGDEBUG)
             try:
                 self.logEvent(jsonmsg)
-                position = self.GetPosition(playerState.playerid)
-                if position:self.SavePosition(playerState.mediaType, playerState.mediaId, position,playerState.playerid)
+                playerState.position = self.GetPosition(playerState.playerid)
+                if playerState.position and saveToDb:self.SavePosition(playerState.mediaType, playerState.mediaId, playerState.position,playerState.playerid)
+                if playerState.position and saveToNfo:self.SavePositionToNfo(playerState)
             finally:
                 playerState.updateLock.release()
                 xbmc.log("%s thread %s released lock" % (addon_name,threading.current_thread().name),xbmc.LOGDEBUG)
@@ -171,54 +177,69 @@ class ResumePositionUpdater():
         playerState.mediaId = mediaId
         playerState.mediaType = mediaType
         updatePeriodically = addon.getSetting('updateperiodically') == 'true'
+        updateNfoOnStop = addon.getSetting('updatenfoonstop') == "true"
         if ( updatePeriodically ): 
             period  = int(addon.getSetting('updateperiod'))       
-            self.startTimer(playerState,period)
+            self.startTimer(playerState,period,updatePeriodically,updateNfoOnStop)
         else:
             self.stopTimer(playerState)
+
  
 # -------------- periodic update code --------------------------
 
     # runs on the timerThread to update the position periodically while the player is playing
     # Sleeps in increments of 100ms so the thread can  be quickly an cleanly terminated by setting running false
     # period is based on real time, not on media position. 
-    def PeriodicUpdate(self,period,playerState):
+    def PeriodicUpdate(self,period,playerState,updatePeriodically,updateOnStop):
         threadName = threading.current_thread().name
         maxSleep=0.1
         period = max(1,period)
         timeRemaining = period
         nextTick = time()+timeRemaining
         playerState.running = True
+        abortRequested = False
         try:
             while playerState.running:
                 while playerState.running and timeRemaining > 0:
                     timeToSleep = min(maxSleep, timeRemaining)
                     sleep(timeToSleep)
                     timeRemaining = max(0, nextTick-time() )
-                    if ( self.monitor.abortRequested() ): playerState.running = False
-                if ( playerState.running ):
-                    position = self.GetPosition(playerState.playerid)
-                    xbmc.log('%s thread %s invoking SavePosition(%s,%s,%d)' \
-                            % (addon_name,threadName,str(position),playerState.mediaType,playerState.mediaId),\
+                    abortRequested = self.monitor.abortRequested()
+                    if ( abortRequested ): 
+                        playerState.running = False
+                        xbmc.log('%s thread %s abort request received' % \
+                            (addon_name,threadName), \
                                 xbmc.LOGDEBUG)
-                    self.SavePosition(playerState.mediaType,playerState.mediaId,position,playerState.playerid)  
+                if ( not abortRequested and playerState.running ):
+                    playerState.position = self.GetPosition(playerState.playerid)
+                    if ( updatePeriodically ): 
+                        xbmc.log('%s thread %s on period invoking SavePosition(%s,%s,%d) ' \
+                            % (addon_name,threadName,str(playerState.position),playerState.mediaType,playerState.mediaId), \
+                                xbmc.LOGDEBUG)
+                        self.SavePosition(playerState.mediaType,playerState.mediaId,playerState.position,playerState.playerid)  
                     nextTick = nextTick+period
                     timeRemaining = period
-
-            xbmc.log('%s thread %s exiting normally' % (addon_name,threadName) \
-                ,xbmc.LOGDEBUG)
+            if ( not abortRequested and updateOnStop and playerState.stopping ):
+                xbmc.log('%s thread %s saving to NFO on stop' % \
+                            (addon_name,threadName), \
+                                xbmc.LOGDEBUG)
+                self.SavePositionToNfo(playerState)
+            xbmc.log('%s thread %s exiting normally' % (addon_name,threadName),\
+                xbmc.LOGDEBUG)
         except Exception as e:
             xbmc.log("%s thread died due %s to %s" % \
                   (addon_name,threadName,str(e)),  \
                       xbmc.LOGDEBUG)
         playerState.running = False
+        playerState.stopping = False
+        playerState.position = None
         playerState.timerThread = None
             
     # starts a new periodic timer on the player, destroying the current one if it exists
-    def startTimer(self,playerState,period): 
+    def startTimer(self,playerState,period,updatePeriodically,updateOnStop): 
         if playerState.timerThread :
             self.stopTimer(playerState)
-        playerState.timerThread = threading.Thread(target=self.PeriodicUpdate,args=(period,playerState))
+        playerState.timerThread = threading.Thread(target=self.PeriodicUpdate,args=(period,playerState,updatePeriodically,updateOnStop))
         playerState.timerThread.setName(addon_name+" periodic update for player "+str(playerState.playerid))
         xbmc.log('%s starting thread %s period=%d '  \
                % (addon_name,playerState.timerThread.name,period),  \
@@ -270,6 +291,9 @@ class ResumePositionUpdater():
              % (addon_name,jsonmsg["method"],str(jsonmsg)),\
              xbmc.LOGDEBUG)
 
+    def SavePositionToNfo(self,playerState):
+        xbmc.log("%s thread %s SavePositionToNfo(%s)" % (addon_name,threading.current_thread().name,playerState),xbmc.LOGDEBUG)
+       
     # save the position to the database (unless another thread is already doing so 
     def SavePosition(self, mediaType, mediaId, position,playerId):
         if self.player[playerId].updateLock.acquire(blocking=False):
