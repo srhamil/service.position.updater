@@ -52,7 +52,8 @@ class ResumePositionUpdater():
             return self.__str__()
 
     player = [PlayerState(0),PlayerState(1)]
- 
+    onStopAccuracy = 5
+
  
 
     monitor = xbmc.Monitor()
@@ -184,41 +185,100 @@ class ResumePositionUpdater():
         else:
             self.stopTimer(playerState)
 
+    def SavePositionForOnStop(self,playerState):
+        pass
+
+    def SaveToDbPeriodicallyTask(self,playerState):
+        playerState.position = self.GetPosition(playerState.playerid)
+        xbmc.log('%s thread %s on period invoking SavePosition(%s,%s,%d) ' \
+                % (addon_name,threading.currentThread().name,str(playerState.position),playerState.mediaType,playerState.mediaId), \
+            xbmc.LOGDEBUG)
+        self.SavePosition(playerState.mediaType, playerState.mediaId, playerState.position, playerState.playerid)  
+
+
  
 # -------------- periodic update code --------------------------
+
+    class TimerTask():
+        def __init__(self,name, playerState,period, callback,now):
+            self.name = name
+            self.period = period
+            self.nextTime = now+period
+            self.callback = callback
+            self.playerState = playerState
+            self.threadName = threading.currentThread().name
+
+        def computeNextTime(self,now):
+            self.nextTime += self.period
+            if self.nextTime < now:
+                if self.nextTime+self.period > now: # close, so skip to the next
+                    self.nextTime+=self.period
+                self.nextTime = now+self.period # way off, rebaseline our ticks
+
+        def __str__(self):
+            return "TimerTask{name=%s,period=%d,nextTime=%f,state=%s}"  % \
+                 (self.name, self.period, self.nextTime,self.playerState)
+
+        def __repr__(self):
+            return self.__str__()
+
+    def NextTick(self,tasks,lastTick):
+        xbmc.log("NextTick(%s,%s)" %(tasks,lastTick),xbmc.LOGDEBUG)
+        now = time()
+        nextTime = now+24*60*60
+        for task in tasks: nextTime = min(nextTime, task.nextTime)
+        xbmc.log("%f=NextTick(%s,%s)" %(nextTime,tasks,lastTick),xbmc.LOGDEBUG)
+        return nextTime
 
     # runs on the timerThread to update the position periodically while the player is playing
     # Sleeps in increments of 100ms so the thread can  be quickly an cleanly terminated by setting running false
     # period is based on real time, not on media position. 
     def PeriodicUpdate(self,period,playerState,updatePeriodically,updateOnStop):
         threadName = threading.current_thread().name
-        maxSleep=0.1
-        period = max(1,period)
-        timeRemaining = period
-        nextTick = time()+timeRemaining
         playerState.running = True
         abortRequested = False
+
+        tasks = list()
+        now = time()
+        if updatePeriodically:
+            task=self.TimerTask("Update Db player"+str(playerState.playerid),playerState,period,self.SaveToDbPeriodicallyTask,now)
+            tasks.append(task)
+        if updateOnStop:
+            task=self.TimerTask("Save Position for OnStop player"+str(playerState.playerid),playerState,self.onStopAccuracy,self.SavePositionForOnStop,now)
+            tasks.append(task)
+        maxSleep=0.1
+
         try:
             while playerState.running:
-                while playerState.running and timeRemaining > 0:
-                    timeToSleep = min(maxSleep, timeRemaining)
+                # micronap til next tick while ready for aborts or stop requests
+                nextTick = self.NextTick(tasks,time())
+                now = time()
+                while playerState.running and now < nextTick:
+                    timeTilNextTick = nextTick-now
+                    timeToSleep = max(0.01,min(maxSleep, timeTilNextTick))
                     sleep(timeToSleep)
-                    timeRemaining = max(0, nextTick-time() )
+                    now = time()  
                     abortRequested = self.monitor.abortRequested()
                     if ( abortRequested ): 
                         playerState.running = False
                         xbmc.log('%s thread %s abort request received' % \
                             (addon_name,threadName), \
                                 xbmc.LOGDEBUG)
+                # we're at t nextTick, execute any tasks that are ready to go
                 if ( not abortRequested and playerState.running ):
-                    playerState.position = self.GetPosition(playerState.playerid)
-                    if ( updatePeriodically ): 
-                        xbmc.log('%s thread %s on period invoking SavePosition(%s,%s,%d) ' \
-                            % (addon_name,threadName,str(playerState.position),playerState.mediaType,playerState.mediaId), \
-                                xbmc.LOGDEBUG)
-                        self.SavePosition(playerState.mediaType,playerState.mediaId,playerState.position,playerState.playerid)  
-                    nextTick = nextTick+period
-                    timeRemaining = period
+                    latestPosition = None
+                    for task in tasks:
+                        xbmc.log("%s" % (task),xbmc.LOGDEBUG)
+                        if task.nextTime <= now :
+                            if latestPosition is None:
+                                latestPosition = playerState.position = self.GetPosition(playerState.playerid)
+                            xbmc.log('%s  thread %s executing %s '  \
+                                 % (addon_name,playerState.timerThread.name,task.name),  \
+                                   xbmc.LOGDEBUG)
+                            task.callback(playerState)
+                            task.computeNextTime(now)
+                            xbmc.log("task.nextTime=%f" %(task.nextTime),xbmc.LOGDEBUG)
+            # thread is stopping
             if ( not abortRequested and updateOnStop and playerState.stopping ):
                 xbmc.log('%s thread %s saving to NFO on stop' % \
                             (addon_name,threadName), \
