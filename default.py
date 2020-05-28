@@ -169,19 +169,31 @@ class ResumePositionUpdater():
                 xbmc.LOGDEBUG)
             return None
         else:
-            return self.player[self.getPlayeridParameter(jsonmsg)]
-
+            (mediaId,mediaType,playerId) = self.getParameters(jsonmsg)
+            playerState = self.player[playerId]
+            playerState.mediaId = mediaId
+            playerState.mediaType = mediaType
+            return playerState
+ 
 
     def handlePlayerStarting(self,jsonmsg):
         (mediaId,mediaType,playerId) = self.getParameters(jsonmsg)
         playerState = self.player[playerId]
         playerState.mediaId = mediaId
         playerState.mediaType = mediaType
-        updatePeriodically = addon.getSetting('updateperiodically') == 'true'
-        updateNfoOnStop = addon.getSetting('updatenfoonstop') == "true"
-        if ( updatePeriodically ): 
+
+        tasks = list()
+        now = time()
+        if addon.getSetting('updateperiodically') == 'true':
             period  = int(addon.getSetting('updateperiod'))       
-            self.startTimer(playerState,period,updatePeriodically,updateNfoOnStop)
+            task=self.TimerTask("Update Db for player"+str(playerState.playerid),playerState,period,self.SaveToDbPeriodicallyTask,now)
+            tasks.append(task)
+        if addon.getSetting('updatenfoonstop') == "true":
+            task=self.TimerTask("Remember Position for OnStop player"+str(playerState.playerid),playerState,self.onStopAccuracy,self.SavePositionForOnStop,now)
+            tasks.append(task)
+
+        if ( tasks ): 
+            self.startTimer(playerState,tasks)
         else:
             self.stopTimer(playerState)
 
@@ -233,19 +245,12 @@ class ResumePositionUpdater():
     # runs on the timerThread to update the position periodically while the player is playing
     # Sleeps in increments of 100ms so the thread can  be quickly an cleanly terminated by setting running false
     # period is based on real time, not on media position. 
-    def PeriodicUpdate(self,period,playerState,updatePeriodically,updateOnStop):
+    def PeriodicUpdate(self,playerState,tasks):
         threadName = threading.current_thread().name
         playerState.running = True
         abortRequested = False
 
-        tasks = list()
         now = time()
-        if updatePeriodically:
-            task=self.TimerTask("Update Db player"+str(playerState.playerid),playerState,period,self.SaveToDbPeriodicallyTask,now)
-            tasks.append(task)
-        if updateOnStop:
-            task=self.TimerTask("Save Position for OnStop player"+str(playerState.playerid),playerState,self.onStopAccuracy,self.SavePositionForOnStop,now)
-            tasks.append(task)
         maxSleep=0.1
 
         try:
@@ -279,7 +284,8 @@ class ResumePositionUpdater():
                             task.computeNextTime(now)
                             xbmc.log("task.nextTime=%f" %(task.nextTime),xbmc.LOGDEBUG)
             # thread is stopping
-            if ( not abortRequested and updateOnStop and playerState.stopping ):
+            updateNfoOnStop = addon.getSetting('updatenfoonstop') == "true"
+            if ( not abortRequested and updateNfoOnStop and playerState.stopping ):
                 xbmc.log('%s thread %s saving to NFO on stop' % \
                             (addon_name,threadName), \
                                 xbmc.LOGDEBUG)
@@ -296,13 +302,13 @@ class ResumePositionUpdater():
         playerState.timerThread = None
             
     # starts a new periodic timer on the player, destroying the current one if it exists
-    def startTimer(self,playerState,period,updatePeriodically,updateOnStop): 
+    def startTimer(self,playerState,tasks): 
         if playerState.timerThread :
             self.stopTimer(playerState)
-        playerState.timerThread = threading.Thread(target=self.PeriodicUpdate,args=(period,playerState,updatePeriodically,updateOnStop))
+        playerState.timerThread = threading.Thread(target=self.PeriodicUpdate,args=(playerState,tasks))
         playerState.timerThread.setName(addon_name+" periodic update for player "+str(playerState.playerid))
-        xbmc.log('%s starting thread %s period=%d '  \
-               % (addon_name,playerState.timerThread.name,period),  \
+        xbmc.log('%s starting thread %s  '  \
+               % (addon_name,playerState.timerThread.name),  \
                    xbmc.LOGDEBUG)
         playerState.timerThread.start()
  
