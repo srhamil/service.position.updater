@@ -1,22 +1,25 @@
 <?xml version="1.0" encoding="utf-8" standalone="yes"?>
 <strings>
   <string id="32000">General</string>
-  <string id="32001">      XBMC IP</string>
-  <string id="32002">      XBMC JSONRPC TCP Port</string>
-  <string id="32100">Description:</string>	
-  <string id="32101">-XBMC IP: localhost is 127.0.0.1</string>
-  <string id="32102">-XBMC JSONRPC TCP Port: This port can be configured in the as.xml - Default: 9090</string>
-  <string id="32103">-In System/Settings/Network/Services activate "Allow programs on this system</string>
-  <string id="32104"> to control XBMC" and "Allow programs on other systems to control XBMC".</string>
+  <string id="32001">JSONRPC Port Settings</string>
+  <string id="32002">XBMC IP</string>
+  <string id="32003">XBMC JSONRPC TCP Port</string>
 
-  <string id="32011">Media Database</string>
-  <string id="32010">Update the resume position in the database</string>
-  <string id="32003">On pause</string>
-  <string id="32004">While playing</string>
-  <string id="32005">       Every n seconds</string>
-  <string id="32006">On seek</string>
+  <string id="32010">Suppress saving resume point near the start or end of media. </string>
+  <string id="32011">Honor advancedsettings.xml</string>
+  <string id="32012">      Honor ignorepercentatend=101</string>
+
+  <string id="32100">Media Database</string>
+  <string id="32101">Update the resume position in the database</string>
+  <string id="32102">On pause</string>
+  <string id="32103">On seek</string>
+  <string id="32104">Periodically while playing</string>
+  <string id="32105">       Every n seconds</string>
   
-  <string id="32007">On stop</string>
-  <string id="32012">NFO File</string>
-  <string id="32008">Save the resume position in the NFO file</string>
+  <string id="32200">NFO File</string>
+  <string id="32201">Save the position to the NFO file associated with the media</string>
+  <string id="32202">On pause</string>
+  <string id="32203">On seek</string>
+  <string id="32204">On stop</string>
+  <string id="32205">       Remove position at media start or end</string>
 </strings>
