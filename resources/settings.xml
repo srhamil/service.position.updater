@@ -1,18 +1,33 @@
 <?xml version="1.0" encoding="utf-8"?>
 <settings>	
   <category label="32000">
-    <setting id="xbmcip"           type="ipaddress" label="32001" default="127.0.0.1" />
-    <setting id="xbmcport"         type="number"    label="32002" default="9090" />
-    <setting id="updateonpause"    type="bool"      label="32003" default="true" />
-    <setting id="updateonseek"     type="bool"      label="32006" default="true" />
-    <setting id="updateperiodically" type="bool"      label="32004" default="true" />
-    <setting id="updateperiod"     type="slider"    label="32005" option="int" default="60" range="1,600" enable="eq(-1,true)" />
-    
-    <setting label="32100" type="lsep" />
-    <setting label="32101" type="lsep" />
-    <setting label="32102" type="lsep" />
+    <setting label="32001" type="lsep" />
+    <setting id="xbmcip"           type="ipaddress" label="32002" default="127.0.0.1" />
+    <setting id="xbmcport"         type="number"    label="32003" default="9090" />
     <setting type="sep" />
-    <setting label="32103" type="lsep" />
-    <setting label="32104" type="lsep" />
+    <setting label="32010" type="lsep" />
+    <setting id="honoradvsettings"  type="bool"      label="32011" default="true"/>
+    <setting id="honorspecial101"   type="bool"      label="32012" default="false"
+          enable="eq(-1,true)+false"/>
+
+  </category>
+  
+
+  <category label="32100">
+    <setting label="32101" type="lsep" />
+    <setting id="updateonpause"    type="bool"      label="32102" default="true" />
+    <setting id="updateonseek"     type="bool"      label="32103" default="true" />
+    <setting id="updateperiodically" type="bool"    label="32104" default="true" />
+    <setting id="updateperiod"     type="slider"    label="32105" option="int"
+          default="60" range="1,600" enable="eq(-1,true)" />
+  </category>
+
+  <category label="32200">
+    <setting label="32201" type="lsep" />
+    <setting id="updatenfoonpause" type="bool" label="32202" default="false" />
+    <setting id="updatenfoonseek" type="bool" label="32203" default="false" />
+    <setting id="updatenfoonstop" type="bool" label="32204" default="false" />  
+    <setting id="removeonendofmedia" type="bool" label="32205" default="true"
+         enable="eq(-1,true)" />
   </category>
 </settings>
