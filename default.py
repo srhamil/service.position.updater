@@ -31,6 +31,7 @@ addon_name = addon.getAddonInfo('name')
 delay = '4000'
 logo = 'special://home/addons/service.position.updater/icon.png'
 
+tracing = False
 
 class ResumePositionUpdater():
     onStopAccuracy = 5
@@ -78,7 +79,7 @@ class ResumePositionUpdater():
                     file = xbmc.translatePath(self.advancedSettingsFile)
                     self.advancedSettingsFileDom = ET.parse(file)
                 except Exception as e:
-                    xbmc.log('% count not read advancedsettings.xml %s' % (addon_name,str(e)),xbmc.LOGDEBUG)
+                    xbmc.log('% could not read advancedsettings.xml %s' % (addon_name,str(e)),xbmc.LOGDEBUG)
                     pass
             self.advancedSettingsFileProcessed = True
 
@@ -90,13 +91,13 @@ class ResumePositionUpdater():
         self.LoadAdvancedSettingsDom()
         if self.advancedSettingsFileDom:
             root = self.advancedSettingsFileDom.getroot()
-            xbmc.log("%s root is %s" % (addon_name,str(root)),xbmc.LOGDEBUG)
+            if tracing: xbmc.log("%s root is %s" % (addon_name,str(root)),xbmc.LOGDEBUG)
             child = root.find(name)
-            xbmc.log("%s child %s is %s" % (addon_name,name,str(child)),xbmc.LOGDEBUG)
+            if tracing: xbmc.log("%s child %s is %s" % (addon_name,name,str(child)),xbmc.LOGDEBUG)
             if child is not None:
                 result = child.text
 
-        xbmc.log("%s final result is %s" % (addon_name,str(result)),xbmc.LOGDEBUG)
+        if tracing: xbmc.log("%s final result is %s" % (addon_name,str(result)),xbmc.LOGDEBUG)
         return result
 
 
@@ -128,7 +129,7 @@ class ResumePositionUpdater():
     def handleMsg(self, msg):
         jsonmsg = json.loads(msg)        
         method = jsonmsg['method']
-        #xbmc.log("{0} handlemsg {1} ".format(addon_name,msg),xbmc.LOGDEBUG)
+        #if tracing: xbmc.log("{0} handlemsg {1} ".format(addon_name,msg),xbmc.LOGDEBUG)
         if method in self.methodDict:
             methodHandler = self.methodDict[method]
             methodHandler(jsonmsg)
@@ -159,7 +160,7 @@ class ResumePositionUpdater():
         updateOnSeek = addon.getSetting('updateonseek') == 'true'
         updateNfoOnSeek = addon.getSetting('updatenfoonseek') == 'true'
         playerState = self.selectPlayerStateForMessage(jsonmsg)
-        if ( updateOnSeek ) : self.CommonSaveOnEventProcessing(playerState,jsonmsg,updateOnSeek,updateNfoOnSeek)
+        if updateOnSeek : self.CommonSaveOnEventProcessing(playerState,jsonmsg,updateOnSeek,updateNfoOnSeek)
        
     def OnStop(self,jsonmsg):
         self.logEvent(jsonmsg)
@@ -190,7 +191,7 @@ class ResumePositionUpdater():
  
     def CommonSaveProcessing(self,playerState,saveToDb,saveToNfo):
         if  playerState.updateLock.acquire(blocking=False):
-            xbmc.log("%s thread %s acquired lock" % (addon_name,threading.current_thread().name),xbmc.LOGDEBUG)
+            if tracing: xbmc.log("%s thread %s acquired lock" % (addon_name,threading.current_thread().name),xbmc.LOGDEBUG)
             try:
                 if self.PositionInRange(playerState.position):
                     if saveToDb:self.SavePositionToDb(playerState)
@@ -199,10 +200,10 @@ class ResumePositionUpdater():
                     if saveToDb:self.RemovePositionElementFromNfo(playerState)
             finally:
                 playerState.updateLock.release()
-                xbmc.log("%s thread %s released lock" % (addon_name,threading.current_thread().name),xbmc.LOGDEBUG)
+                if tracing: xbmc.log("%s thread %s released lock" % (addon_name,threading.current_thread().name),xbmc.LOGDEBUG)
         else:
             pass
-            xbmc.log("%s thread %s failed to acquire lock" % (addon_name,threading.current_thread().name),xbmc.LOGDEBUG)
+            if tracing: xbmc.log("%s thread %s failed to acquire lock" % (addon_name,threading.current_thread().name),xbmc.LOGDEBUG)
 
 
     def selectPlayerStateForMessage(self,jsonmsg):
@@ -244,18 +245,18 @@ class ResumePositionUpdater():
                 playerState,self.onStopAccuracy,self.SavePositionForOnStop,now)
             tasks.append(task)
 
-        if ( tasks ): 
+        if tasks: 
             self.startTimer(playerState,tasks)
         else:
             self.stopTimer(playerState)
 
     def SavePositionForOnStop(self,playerState):
-        xbmc.log('%s SavePositionForOnStop(%s)' % (addon_name, playerState),xbmc.LOGDEBUG)
+        if tracing: xbmc.log('%s SavePositionForOnStop(%s)' % (addon_name, playerState),xbmc.LOGDEBUG)
         pass
 
     def SaveToDbPeriodicallyTask(self,playerState):
         if self.PositionInRange(playerState.position):
-            xbmc.log('%s thread %s on period invoking\1SavePositionToDb\2%s,%s,%d) ' \
+            if tracing: xbmc.log('%s thread %s on period invoking\1SavePositionToDb\2%s,%s,%d) ' \
                     % (addon_name,threading.currentThread().name,str(playerState.position), \
                         playerState.mediaType,playerState.mediaId), \
                 xbmc.LOGDEBUG)
@@ -263,10 +264,10 @@ class ResumePositionUpdater():
             self.CommonSaveProcessing(playerState,True,False)
             
     def PositionInRange(self,position):
-        xbmc.log('%s PositionInRange(%s) ignoresecondsatstart=%s ignorepercentatend=%s' % (addon_name,str(position),str(self.ignoresecondsatstart),str(self.ignorepercentatend)),xbmc.LOGDEBUG)
+        if tracing: xbmc.log('%s PositionInRange(%s) ignoresecondsatstart=%s ignorepercentatend=%s' % (addon_name,str(position),str(self.ignoresecondsatstart),str(self.ignorepercentatend)),xbmc.LOGDEBUG)
         if not position or position[0] < self.ignoresecondsatstart: return False
         percentComplete = 100.0 * position[0] / position[1]
-        xbmc.log('%s  %f <= %f' % (addon_name,percentComplete,100.0-self.ignorepercentatend),xbmc.LOGDEBUG)
+        if tracing: xbmc.log('%s  %f <= %f' % (addon_name,percentComplete,100.0-self.ignorepercentatend),xbmc.LOGDEBUG)
         return percentComplete <= 100.0-self.ignorepercentatend
 
 
@@ -297,11 +298,11 @@ class ResumePositionUpdater():
             return self.__str__()
 
     def NextTick(self,tasks,lastTick):
-        xbmc.log("NextTick(%s,%s)" %(tasks,lastTick),xbmc.LOGDEBUG)
+        if tracing: xbmc.log("NextTick(%s,%s)" %(tasks,lastTick),xbmc.LOGDEBUG)
         now = time()
         nextTime = now+24*60*60
         for task in tasks: nextTime = min(nextTime, task.nextTime)
-        xbmc.log("%f=NextTick(%s,%s)" %(nextTime,tasks,lastTick),xbmc.LOGDEBUG)
+        if tracing: xbmc.log("%f=NextTick(%s,%s)" %(nextTime,tasks,lastTick),xbmc.LOGDEBUG)
         return nextTime
 
     # runs on the timerThread to update the position periodically while the player is playing
@@ -326,27 +327,27 @@ class ResumePositionUpdater():
                     sleep(timeToSleep)
                     now = time()  
                     abortRequested = self.monitor.abortRequested()
-                    if ( abortRequested ): 
+                    if abortRequested : 
                         playerState.running = False
-                        xbmc.log('%s thread %s abort request received' % \
+                        if tracing: xbmc.log('%s thread %s abort request received' % \
                             (addon_name,threadName), \
                                 xbmc.LOGDEBUG)
                 # we're at t nextTick, execute any tasks that are ready to go
-                if ( not abortRequested and playerState.running ):
+                if not abortRequested and playerState.running:
                     playerState.position = self.GetPosition(playerState.playerid)
                     for task in tasks:
-                        xbmc.log("%s" % (task),xbmc.LOGDEBUG)
+                        if tracing: xbmc.log("%s" % (task),xbmc.LOGDEBUG)
                         if task.nextTime <= now :
-                            xbmc.log('%s  thread %s executing %s '  \
+                            if tracing: xbmc.log('%s  thread %s executing %s '  \
                                  % (addon_name,playerState.timerThread.name,task.name),  \
                                    xbmc.LOGDEBUG)
                             task.callback(playerState)
                             task.computeNextTime(now)
-                            xbmc.log("task.nextTime=%f" %(task.nextTime),xbmc.LOGDEBUG)
+                            if tracing: xbmc.log("task.nextTime=%f" %(task.nextTime),xbmc.LOGDEBUG)
             # thread is stopping
             updateNfoOnStop = addon.getSetting('updatenfoonstop') == "true"
-            if ( not abortRequested and updateNfoOnStop and playerState.handleOnStop ):
-                xbmc.log('%s thread %s saving to NFO on stop' % \
+            if not abortRequested and updateNfoOnStop and playerState.handleOnStop:
+                if tracing: xbmc.log('%s thread %s saving to NFO on stop' % \
                             (addon_name,threadName), \
                                 xbmc.LOGDEBUG)
                 if addon.getSetting('removeonendofmedia') == 'true' and \
@@ -355,7 +356,7 @@ class ResumePositionUpdater():
                     self.RemovePositionElementFromNfo(playerState) 
                 else:
                     self.SavePositionToNfo(playerState)
-            xbmc.log('%s thread %s exiting normally' % (addon_name,threadName),\
+            if tracing: xbmc.log('%s thread %s exiting normally' % (addon_name,threadName),\
                 xbmc.LOGDEBUG)
         except Exception as e:
             xbmc.log("%s thread died due %s to %s" % \
@@ -372,7 +373,7 @@ class ResumePositionUpdater():
             self.stopTimer(playerState)
         playerState.timerThread = threading.Thread(target=self.PeriodicUpdate,args=(playerState,tasks))
         playerState.timerThread.setName(addon_name+" periodic update for player "+str(playerState.playerid))
-        xbmc.log('%s starting thread %s  '  \
+        if tracing: xbmc.log('%s starting thread %s  '  \
                % (addon_name,playerState.timerThread.name),  \
                    xbmc.LOGDEBUG)
         playerState.timerThread.start()
@@ -380,7 +381,7 @@ class ResumePositionUpdater():
     # stops and destroys the current time thread if it exists
     def stopTimer(self,playerState):
         if  not playerState.playerid == None  and playerState.timerThread :
-            xbmc.log('%s stopping thread %s '  \
+            if tracing: xbmc.log('%s stopping thread %s '  \
                % (addon_name,playerState.timerThread.name),  \
                    xbmc.LOGDEBUG)
             playerState.running = False
@@ -397,13 +398,13 @@ class ResumePositionUpdater():
             itemid = jsonmsg["params"]["data"]["item"]["id"]
             itemtype = jsonmsg["params"]["data"]["item"]["type"]
             playerid = int(jsonmsg["params"]["data"]["player"]["playerid"])
-            xbmc.log('%s params itemid: %d itemtype: %s playerid: %d' %\
+            if tracing: xbmc.log('%s params itemid: %d itemtype: %s playerid: %d' %\
                 (addon_name, itemid, itemtype,playerid), \
                 xbmc.LOGDEBUG)
             return ( itemid, itemtype, playerid )
         except Exception as e:
             pass
-            xbmc.log('%s ignoring event, bad or missing params %s %s' %\
+            if tracing: xbmc.log('%s ignoring event, bad or missing params %s %s' %\
                         (addon_name, jsonmsg, e),xbmc.LOGDEBUG)
         return (None,None,None)
            
@@ -413,22 +414,26 @@ class ResumePositionUpdater():
             return playerid
         except Exception as e:
             pass
-            xbmc.log('%s ignoring event, bad or missing params %s %s' %\
+            if tracing: xbmc.log('%s ignoring event, bad or missing params %s %s' %\
                         (addon_name, jsonmsg, e),xbmc.LOGDEBUG)
         return None
            
     def logEvent(self,  jsonmsg):
-         xbmc.log('%s method: %s message: %s' \
+         if tracing: xbmc.log('%s method: %s message: %s' \
              % (addon_name,jsonmsg["method"],str(jsonmsg)),\
              xbmc.LOGDEBUG)
 
     def SavePositionToNfo(self,playerState):
-        xbmc.log("%s thread %s SavePositionToNfo(%s)" % (addon_name,threading.current_thread().name,playerState),xbmc.LOGDEBUG)
+        if tracing: xbmc.log("%s thread %s SavePositionToNfo(%s)" % (addon_name,threading.current_thread().name,playerState),xbmc.LOGDEBUG)
        
+    def xxxx(self):
+        # lookup filename in video library
+        pass
+        
     # save the position to the database (unless another thread is already doing so 
     def SavePositionToDb(self, playerState):
         if playerState.updateLock.acquire(blocking=False):
-            xbmc.log("%s thread %s acquired lock" % (addon_name,threading.current_thread().name),xbmc.LOGDEBUG)
+            if tracing: xbmc.log("%s thread %s acquired lock" % (addon_name,threading.current_thread().name),xbmc.LOGDEBUG)
             try :
                 if playerState.mediaType == 'movie':
                     self.SaveMoviePosition(playerState.mediaId, playerState.position)
@@ -439,41 +444,42 @@ class ResumePositionUpdater():
                 #   self.SaveSongPosition( mediaId, position)
                 else:
                     pass
-                    xbmc.log("%s media type %s not known by SavePositionToDb)" % (addon_name,playerState.mediaType),xbmc.LOGDEBUG)
+                    if tracing: xbmc.log("%s media type %s not known by SavePositionToDb)" % (addon_name,playerState.mediaType),xbmc.LOGDEBUG)
             finally:
                 playerState.updateLock.release()
-                xbmc.log("%s thread %s released lock" % (addon_name,threading.current_thread().name),xbmc.LOGDEBUG)
+                if tracing: xbmc.log("%s thread %s released lock" % (addon_name,threading.current_thread().name),xbmc.LOGDEBUG)
         else:
             pass
-            xbmc.log("%s thread %s failed to acquire lock" % (addon_name,threading.current_thread().name),xbmc.LOGDEBUG)
+            if tracing: xbmc.log("%s thread %s failed to acquire lock" % (addon_name,threading.current_thread().name),xbmc.LOGDEBUG)
 
     # get the position from the player. Returns a tuple (int time, int totaltime) or None
     def GetPosition(self, playerid):
+
         position = None
         try:
             query = '{"jsonrpc":"2.0","method":"Player.GetProperties","params":{"playerid":%d,"properties":["time","totaltime"]},"id":1}'  % \
                 (playerid)
-            xbmc.log('%s position query for player %d is %s ' %  \
+            if tracing: xbmc.log('%s position query for player %d is %s ' %  \
                 (addon_name,playerid,query), \
                 xbmc.LOGDEBUG)
             msg = xbmc.executeJSONRPC( query )
-            xbmc.log('%s result of position query for player %d is %s' % \
+            if tracing: xbmc.log('%s result of position query for player %d is %s' % \
                  (addon_name,playerid,msg), \
                      xbmc.LOGDEBUG)
             jsonmsg = json.loads(msg)
             time = self.convertTimeToSeconds(jsonmsg["result"]["time"])
             totalTime = self.convertTimeToSeconds(jsonmsg["result"]["totaltime"])
             position = (time, totalTime)
-            xbmc.log("%s final position is %s" % (addon_name,str(position)),xbmc.LOGDEBUG)
+            if tracing: xbmc.log("%s final position is %s" % (addon_name,str(position)),xbmc.LOGDEBUG)
         except Exception as e:
-            xbmc.log("{0} failed to determine player position {1} ".format(addon_name,str(e)),xbmc.LOGINFO)
+            if tracing: xbmc.log("{0} failed to determine player position {1} ".format(addon_name,str(e)),xbmc.LOGINFO)
         return position
  
     def ExecuteSavePositionCommand(self,command):
-        xbmc.log("%s save position command %s" % (addon_name,command), \
+        if tracing: xbmc.log("%s save position command %s" % (addon_name,command), \
             xbmc.LOGDEBUG)
         msg = xbmc.executeJSONRPC( command )
-        xbmc.log("%s save position response %s" % (addon_name,msg), \
+        if tracing: xbmc.log("%s save position response %s" % (addon_name,msg), \
             xbmc.LOGDEBUG)
         jsonmsg = json.loads(msg)
         return  "result" in jsonmsg and jsonmsg["result"] == "Ok" 
@@ -497,7 +503,7 @@ class ResumePositionUpdater():
 # -----------------------------------------------------------------------------------------------
 
     def RemovePositionElementFromNfo(self,playerState):
-        xbmc.log('RemovePositionElementFromNfo(%s)' %(playerState),xbmc.LOGDEBUG)
+        if tracing: xbmc.log('RemovePositionElementFromNfo(%s)' %(playerState),xbmc.LOGDEBUG)
 
 
 if __name__ == '__main__':
