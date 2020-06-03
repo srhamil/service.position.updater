@@ -21,6 +21,8 @@ import threading
 from time import sleep
 from time import time
 from xml.dom import minidom
+from os import path
+
 
 
 
@@ -31,7 +33,7 @@ addon_name = addon.getAddonInfo('name')
 delay = '4000'
 logo = 'special://home/addons/service.position.updater/icon.png'
 
-tracing = False
+tracing = True
 
 class ResumePositionUpdater():
     onStopAccuracy = 5
@@ -118,10 +120,39 @@ class ResumePositionUpdater():
             self.playerid = playerid
 
         def __str__(self):
-            return 'PlayerState{playerid=%d,running=%s,handleOnStop=%s,mediaType=%s,mediaId=%d,position=%s,file=%s}'% \
+            return 'PlayerState{playerid=%d,running=%s,handleOnStop=%s,mediaType=%s,mediaId=%d,position=%s,playingFile=%s}'% \
                 (self.playerid,self.running,self.handleOnStop,self.mediaType,self.mediaId,self.position,self.playingFile)
         def __repr__(self):
             return self.__str__()
+
+        def setMedia(self,mediaType,mediaId):
+            if mediaType != self.mediaType or mediaId != self.mediaId:
+                self.mediaType = mediaType
+                self.mediaId = mediaId
+                self.playingFile = self.LookupMediaFilepath(mediaType,mediaId)
+
+        def LookupMediaFilepath(self,mediaType,mediaId):
+            if tracing: xbmc.log('%s LookupMediaFilepath(%s,%d)' % (addon_name,mediaType,mediaId), xbmc.LOGDEBUG)
+            filepath=None
+            try:
+                if mediaType == u'movie':
+                    request='{"jsonrpc":"2.0","method":"VideoLibrary.GetMovieDetails","params":{"movieid":%d,"properties":["file"]},"id":1}' %(mediaId)
+                    if tracing: xbmc.log("%s request: %s" % (addon_name,request))
+                    response = xbmc.executeJSONRPC(request )
+                    if tracing: xbmc.log("%s response: %s" % (addon_name,response))
+                    filepath = json.loads(response)["result"]["moviedetails"]["file"]
+                elif mediaId == u'episode':
+                    request='{"jsonrpc":"2.0","method":"VideoLibrary.GetEpisodeDetails","params":{"episodeid":%d,"properties":["file"]},"id":1}' %(mediaId) 
+                    if tracing: xbmc.log("%s request: %s" % (addon_name,request))
+                    response = xbmc.executeJSONRPC(request)
+                    if tracing: xbmc.log("%s response: %s" % (addon_name,response))
+                    filepath = json.loads(response)["result"]["episodedetails"]["file"]
+            except Exception as e:
+                xbmc.log("%s LookupMediaFilepath(%s,%d) failed with %s" % (addon_name, mediaType, mediaId,e),xbmc.LOGDEBUG)
+
+            if tracing: xbmc.log('%s LookupMediaFilepath(%s,%d): %s' % (addon_name,mediaType,mediaId,filepath), xbmc.LOGDEBUG)       
+            return filepath
+
 
     player = [PlayerState(0),PlayerState(1)]
   
@@ -220,18 +251,12 @@ class ResumePositionUpdater():
         else:
             (mediaId,mediaType,playerId) = self.getParameters(jsonmsg)
             playerState = self.player[playerId]
-            if playerState.mediaId != mediaId or playerState.mediaType != mediaType:
-                playerState.mediaId = mediaId
-                playerState.mediaType = mediaType
-                playerState.playingFile=xbmc.player[playerState].getPlayingFile()
+            playerState.setMedia(mediaType,mediaId)
             return playerState
  
 
     def handlePlayerStarting(self,jsonmsg):
-        (mediaId,mediaType,playerId) = self.getParameters(jsonmsg)
-        playerState = self.player[playerId]
-        playerState.mediaId = mediaId
-        playerState.mediaType = mediaType
+        playerState=self.selectPlayerStateForMessage(jsonmsg)
 
         tasks = list()
         now = time()
@@ -423,12 +448,8 @@ class ResumePositionUpdater():
              % (addon_name,jsonmsg["method"],str(jsonmsg)),\
              xbmc.LOGDEBUG)
 
-    def SavePositionToNfo(self,playerState):
-        if tracing: xbmc.log("%s thread %s SavePositionToNfo(%s)" % (addon_name,threading.current_thread().name,playerState),xbmc.LOGDEBUG)
        
-    def xxxx(self):
-        # lookup filename in video library
-        pass
+ 
         
     # save the position to the database (unless another thread is already doing so 
     def SavePositionToDb(self, playerState):
@@ -502,10 +523,163 @@ class ResumePositionUpdater():
         return 3600*hours + 60*minutes + seconds
 # -----------------------------------------------------------------------------------------------
 
+ 
+    def findNfoFileForMedia(self,mediaFile):
+        if tracing: xbmc.log("%s findNfoFileForMedia(%s)" % (addon_name, mediaFile),xbmc.LOGDEBUG)
+        if mediaFile is None:
+            return None
+         # handle the alternate location of movie.nfo which Kodi supports but does not recommend using
+        filepath = mediaFile.replace(path.splitext(mediaFile)[1], '.nfo')
+        filepath2 = mediaFile.replace(path.split(mediaFile)[1], 'movie.nfo')
+        if xbmcvfs.exists(filepath) == False and xbmcvfs.exists(filepath2):
+            filepath = filepath2
+        if tracing: xbmc.log("{0} updating {1}".format(addon_name,filepath), xbmc.LOGINFO)
+        return filepath
+
+
     def RemovePositionElementFromNfo(self,playerState):
         if tracing: xbmc.log('RemovePositionElementFromNfo(%s)' %(playerState),xbmc.LOGDEBUG)
+        nfoFile = self.findNfoFileForMedia(playerState.playingFile)
+        if nfoFile:
+            dom = self.ReadXmlFileIntoDom(nfoFile)
+            root = dom.getroot()
+            resumeElement = root.find("resume")
+            if resumeElement is not None:
+                root.remove(resumeElement)
+                self.WriteDomToXmlFile(dom,nfoFile)
+
+       
+
+    def ReadXmlFileIntoDom(self, filepath):
+        dom=None
+ 
+        if filepath is not None and xbmcvfs.exists(filepath):
+            xml = self.readFile(filepath)
+            if not xml:
+                xbmc.log("{0} NFO is not readable  {1}".format(addon_name,filepath), xbmc.LOGINFO)
+                return
+             
+            dom=self.parseXml(xml)
+            if dom is None:
+                xbmc.log("{0} NFO is not XML  {1}".format(addon_name,filepath), xbmc.LOGINFO)
+        return dom
+
+    def WriteDomToXmlFile(self,dom,filepath):
+        root = dom.getroot()
+        self.prettyPrintXML(root)
+        xml = ET.tostring(root, encoding='UTF-8')
+        if not xml:
+            xbmc.log("{0}  XML creation failed".format(addon_name), xbmc.LOGINFO)
+            return
+        xbmc.log("{0} xml is {1}".format(addon_name, str(xml)), xbmc.LOGDEBUG)
+
+        if self.writeFile(filepath, xml):
+            xbmc.log("{0} succesfully updated {1}".format(addon_name, filepath), xbmc.LOGDEBUG)
 
 
+    def SavePositionToNfo(self, playerState):
+        if tracing: xbmc.log("%s thread %s SavePositionToNfo(%s)" % (addon_name,threading.current_thread().name,playerState),xbmc.LOGDEBUG)
+        nfoFile = self.findNfoFileForMedia(playerState.playingFile )
+        if nfoFile:
+   
+            tree = self.ReadXmlFileIntoDom(nfoFile)
+            if tree is not None:
+                root = tree.getroot()
+                if root is None:
+                    xbmc.log("{0} root element not found".format(addon_name), xbmc.LOGINFO)
+                    return
+    
+                resumeElement = self.findOrCreateElement(root,'resume', True)
+                positionElement = self.findOrCreateElement(resumeElement,'position',True)
+                self.setElementText(positionElement,str(playerState.position[0]))
+                positionElement = self.findOrCreateElement(resumeElement,'total',True)
+                self.setElementText(positionElement,str(playerState.position[1]))
+
+                self.WriteDomToXmlFile(tree,nfoFile)
+            else:
+                xbmc.log("{0} NFO file not readable")
+    
+        else:
+            xbmc.log("{0} NFO not found for {1}".format(addon_name, playerState.playingFile ), xbmc.LOGINFO)
+
+    def findOrCreateElement( self,  parent, elementName, okToCreate):
+        xbmc.log("{0} findOrCreateElement  {1}, {2}, {3} ".format(addon_name,str(parent),str(elementName),str(okToCreate)), xbmc.LOGINFO)
+        result = parent.find(elementName)
+        if result == None and okToCreate:
+            result = ET.SubElement(parent,elementName)
+        return result
+
+    def writeFile(self, filepath, contents):
+        notificationsWanted = addon.getSetting('notification') == 'true'
+        dFile = None
+        result = False
+        try:
+            dFile = xbmcvfs.File(filepath, 'w')
+            dFile.write(contents) ##String msg or bytearray: bytearray(msg)
+            result = True
+        except Exception as e:
+            xbmc.log("{0} I/O Error writing {1}, {2}".format(addon_name, filepath, str(e)),xbmc.LOGINFO)
+            if notificationsWanted: xbmc.executebuiltin('Notification(%s, Write IO Error %s, %s)' %(addon_name, delay, logo) )
+        finally:
+            if dFile is not None: dFile.close()
+        return result
+            
+
+
+    def prettyPrintXML(self, elem, level=0):
+        i = '\n' + level * '  '
+        if len(elem):
+            if not elem.text or not elem.text.strip():
+                elem.text = i + "  "
+            if not elem.tail or not elem.tail.strip():
+                elem.tail = i
+            for elem in elem:
+                self.prettyPrintXML(elem, level+1)
+            if not elem.tail or not elem.tail.strip():
+                elem.tail = i
+        else:
+            if level and (not elem.tail or not elem.tail.strip()):
+                elem.tail = i
+
+                
+    def readFile(self,filepath):
+        sFile = None
+        try:
+            sFile = xbmcvfs.File(filepath)
+            currentBuffer = []
+            msg = ''
+            while True:
+                buf = sFile.read(1024)
+                currentBuffer.append(buf)
+                if not buf:
+                    msg = ''.join(currentBuffer)                    
+                    break
+        except Exception:
+            pass
+        finally:
+            if sFile is not None: sFile.close()
+        return msg
+
+    def parseXml(self,xml):
+            try:
+                tree = ET.ElementTree(ET.fromstring(xml))
+                return tree
+            except Exception as err:
+                xbmc.log("{0} bad xml: {1}".format(addon_name,str(err)), xbmc.LOGDEBUG)
+            return None
+            
+    def setElementText(self, element, value):
+        if tracing: xbmc.log("{0} setElementText  {1}, {2}, ".format(addon_name,str(element),str(value)), xbmc.LOGDEBUG)
+        currentValue = element.text
+        if ( str(value) == currentValue ): return False
+        element.text = str(value)
+        return True
+
+      
+ 
+
+
+# ----------------------------------------------------------------------------------------
 if __name__ == '__main__':
     WU = ResumePositionUpdater()
     WU.listen()
