@@ -22,4 +22,5 @@
   <string id="32203">On seek</string>
   <string id="32204">On stop</string>
   <string id="32205">       Remove position at media start or end</string>
+  <string id="32206">       Accuracy in seconds</string>
 </strings>

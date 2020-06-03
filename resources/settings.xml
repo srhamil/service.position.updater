@@ -29,5 +29,7 @@
     <setting id="updatenfoonstop" type="bool" label="32204" default="false" />  
     <setting id="removeonendofmedia" type="bool" label="32205" default="true"
          enable="eq(-1,true)" />
+    <setting id="endofmediaaccuracy" type="slider" label="32206" default="true"
+         option="int" enable="eq(-1,true)" />
   </category>
 </settings>
