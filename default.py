@@ -120,7 +120,7 @@ class ResumePositionUpdater():
             self.playerid = playerid
 
         def __str__(self):
-            return 'PlayerState{playerid=%d,running=%s,handleOnStop=%s,mediaType=%s,mediaId=%d,position=%s,playingFile=%s}'% \
+            return 'PlayerState{playerid=%d,running=%s,handleOnStop=%s,mediaType=%s,mediaId=%s,position=%s,playingFile=%s}'% \
                 (self.playerid,self.running,self.handleOnStop,self.mediaType,self.mediaId,self.position,self.playingFile)
         def __repr__(self):
             return self.__str__()
@@ -132,6 +132,9 @@ class ResumePositionUpdater():
                 self.playingFile = self.LookupMediaFilepath(mediaType,mediaId)
 
         def LookupMediaFilepath(self,mediaType,mediaId):
+            if mediaId is None:  
+                if tracing: xbmc.log('%s LookupMediaFilepath(%s,None)' % (addon_name,mediaType), xbmc.LOGDEBUG)
+                return None
             if tracing: xbmc.log('%s LookupMediaFilepath(%s,%d)' % (addon_name,mediaType,mediaId), xbmc.LOGDEBUG)
             filepath=None
             try:
@@ -191,21 +194,26 @@ class ResumePositionUpdater():
         updateOnSeek = addon.getSetting('updateonseek') == 'true'
         updateNfoOnSeek = addon.getSetting('updatenfoonseek') == 'true'
         playerState = self.selectPlayerStateForMessage(jsonmsg)
-        if updateOnSeek : self.CommonSaveOnEventProcessing(playerState,jsonmsg,updateOnSeek,updateNfoOnSeek)
+        if updateOnSeek and playerState: self.CommonSaveOnEventProcessing(playerState,jsonmsg,updateOnSeek,updateNfoOnSeek)
        
     def OnStop(self,jsonmsg):
         self.logEvent(jsonmsg)
         playerState = self.selectPlayerStateForMessage(jsonmsg)
-        playerState.handleOnStop = True
-        self.stopTimer(playerState)
+        if playerState:
+            playerState.handleOnStop = True
+            self.stopTimer(playerState)
+        else
+        # TODO ok, the player is stopping but we can't id which one?
+            pass
 
     def OnPause(self,jsonmsg):
         self.logEvent(jsonmsg)
         playerState = self.selectPlayerStateForMessage(jsonmsg)
-        self.stopTimer(playerState)
-        updateOnPause = addon.getSetting('updateonpause') == 'true'
-        updateNfoOnPause = addon.getSetting('updateonpause') == 'true'
-        if  updateOnPause : self.CommonSaveOnEventProcessing(playerState,jsonmsg,updateOnPause,updateNfoOnPause)
+        if playerState:
+            self.stopTimer(playerState)
+            updateOnPause = addon.getSetting('updateonpause') == 'true'
+            updateNfoOnPause = addon.getSetting('updateonpause') == 'true'
+            if  updateOnPause : self.CommonSaveOnEventProcessing(playerState,jsonmsg,updateOnPause,updateNfoOnPause)
        
     def OnPlay(self,jsonmsg):
         self.logEvent(jsonmsg)
@@ -244,15 +252,16 @@ class ResumePositionUpdater():
 
     def selectPlayerStateForMessage(self,jsonmsg):
         if jsonmsg["method"] == "Player.OnStop":
-            itemid = jsonmsg["params"]["data"]["item"]["id"]
             itemtype = jsonmsg["params"]["data"]["item"]["type"]
-            for playerState in self.player:
-                if playerState.mediaId == itemid and playerState.mediaType == itemtype:
-                    return  playerState
-            xbmc.log('%s no player seems to be playing %s %d' %  \
-                (addon_name,itemtype, itemid),  \
-                xbmc.LOGDEBUG)
-            return None
+            if "item" in jsonmsg["params"]["data"] and "id" in jsonmsg["params"]["data"]["item"]:
+                itemid = jsonmsg["params"]["data"]["item"]["id"]
+                for playerState in self.player:
+                    if playerState.mediaId == itemid and playerState.mediaType == itemtype:
+                        return  playerState
+                xbmc.log('%s no player seems to be playing %s %d' %  \
+                    (addon_name,itemtype, itemid),  \
+                    xbmc.LOGDEBUG)
+                return None
         else:
             (mediaId,mediaType,playerId) = self.getParameters(jsonmsg)
             playerState = self.player[playerId]
@@ -287,7 +296,7 @@ class ResumePositionUpdater():
 
     def SaveToDbPeriodicallyTask(self,playerState):
         if self.PositionInRange(playerState.position):
-            if tracing: xbmc.log('%s thread %s on period invoking\1SavePositionToDb\2%s,%s,%d) ' \
+            if tracing: xbmc.log('%s thread %s on period invoking SavePositionToDb(%s,%s,%s) ' \
                     % (addon_name,threading.currentThread().name,str(playerState.position), \
                         playerState.mediaType,playerState.mediaId), \
                 xbmc.LOGDEBUG)
@@ -304,7 +313,7 @@ class ResumePositionUpdater():
         
     def PlayerAtEnd(self,position):
         if not position: return False
-        if addon.getsetting('honoradvsettings') == 'true':
+        if addon.getSetting('honoradvsettings') == 'true':
             percentComplete = 100.0 * position[0] / position[1]
             return percentComplete > 100.0-self.ignorepercentatend
         else:
@@ -440,13 +449,16 @@ class ResumePositionUpdater():
 # ---------------------------------------------------------------------------------
     def getParameters(self,jsonmsg):
         try:
-            itemid = jsonmsg["params"]["data"]["item"]["id"]
             itemtype = jsonmsg["params"]["data"]["item"]["type"]
             playerid = int(jsonmsg["params"]["data"]["player"]["playerid"])
-            if tracing: xbmc.log('%s params itemid: %d itemtype: %s playerid: %d' %\
-                (addon_name, itemid, itemtype,playerid), \
-                xbmc.LOGDEBUG)
-            return ( itemid, itemtype, playerid )
+            if "item" in jsonmsg["params"]["data"] and "id" in jsonmsg["params"]["data"]["item"]:
+                itemid = jsonmsg["params"]["data"]["item"]["id"]
+                if tracing: xbmc.log('%s params itemid: %d itemtype: %s playerid: %d' %\
+                    (addon_name, itemid, itemtype,playerid), \
+                    xbmc.LOGDEBUG)
+                return ( itemid, itemtype, playerid )
+            else:
+                return ( None, itemtype, playerid)
         except Exception as e:
             pass
             if tracing: xbmc.log('%s ignoring event, bad or missing params %s %s' %\
@@ -473,25 +485,26 @@ class ResumePositionUpdater():
         
     # save the position to the database (unless another thread is already doing so 
     def SavePositionToDb(self, playerState):
-        if playerState.updateLock.acquire(blocking=False):
-            if tracing: xbmc.log("%s thread %s acquired lock" % (addon_name,threading.current_thread().name),xbmc.LOGDEBUG)
-            try :
-                if playerState.mediaType == 'movie':
-                    self.SaveMoviePosition(playerState.mediaId, playerState.position)
-                elif playerState.mediaType == 'episode':
-                    self.SaveEpisodePosition( playerState.mediaId, playerState.position)
-                elif playerState.mediaType == 'song':
-                    pass
-                #   self.SaveSongPosition( mediaId, position)
-                else:
-                    pass
-                    if tracing: xbmc.log("%s media type %s not known by SavePositionToDb)" % (addon_name,playerState.mediaType),xbmc.LOGDEBUG)
-            finally:
-                playerState.updateLock.release()
-                if tracing: xbmc.log("%s thread %s released lock" % (addon_name,threading.current_thread().name),xbmc.LOGDEBUG)
-        else:
-            pass
-            if tracing: xbmc.log("%s thread %s failed to acquire lock" % (addon_name,threading.current_thread().name),xbmc.LOGDEBUG)
+        if playerState.mediaId:
+            if playerState.updateLock.acquire(blocking=False):
+                if tracing: xbmc.log("%s thread %s acquired lock" % (addon_name,threading.current_thread().name),xbmc.LOGDEBUG)
+                try :
+                    if playerState.mediaType == 'movie':
+                        self.SaveMoviePosition(playerState.mediaId, playerState.position)
+                    elif playerState.mediaType == 'episode':
+                        self.SaveEpisodePosition( playerState.mediaId, playerState.position)
+                    elif playerState.mediaType == 'song':
+                        pass
+                    #   self.SaveSongPosition( mediaId, position)
+                    else:
+                        pass
+                        if tracing: xbmc.log("%s media type %s not known by SavePositionToDb)" % (addon_name,playerState.mediaType),xbmc.LOGDEBUG)
+                finally:
+                    playerState.updateLock.release()
+                    if tracing: xbmc.log("%s thread %s released lock" % (addon_name,threading.current_thread().name),xbmc.LOGDEBUG)
+            else:
+                pass
+                if tracing: xbmc.log("%s thread %s failed to acquire lock" % (addon_name,threading.current_thread().name),xbmc.LOGDEBUG)
 
     # get the position from the player. Returns a tuple (int time, int totaltime) or None
     def GetPosition(self, playerid):
@@ -592,6 +605,9 @@ class ResumePositionUpdater():
 
     def CollisionTolerantPlayerNfoUpdate(self,playerState,callback):
         if tracing: xbmc.log('%s CollisionTolerantPlayerNfoUpdate(%s)' %(addon_name,playerState),xbmc.LOGDEBUG)
+        if playerState.playingFile is None:
+           if tracing: xbmc.log("%s no know file is playing so can't find corresponding nfo" % (addon_name), xbmc.LOGDEBUG)
+           return
         nfoFile = self.findNfoFileForMedia(playerState.playingFile)
         if nfoFile:
             self.CollisionTolerantNfoUpdate(nfoFile,playerState,callback)
@@ -608,11 +624,16 @@ class ResumePositionUpdater():
         if resumeElement is not None:
             root.remove(resumeElement)
             dirty = True
-        if addon.getSetting('updateoupdatewatchedatendnseek') == 'true':
-            watchedElement = self.findOrCreateElement(root,'watched',True)
-            dirty = self.setElementText(watchedElement,str(True)) or dirty
+        if addon.getSetting('updateoupdatewatchedatendnseek') == 'true':            
+            dirty = self.SetWatchedElement(dom) or dirty
         return (success,dirty)
 
+    def SetWatchedElement(self,dom):
+        root = dom.getroot()
+        watchedElement = self.findOrCreateElement(root,'watched',True)
+        dirty = self.setElementText(watchedElement,str(True))
+        return dirty
+      
         
 
     def ReadXmlFileIntoDom(self, filepath):
@@ -650,7 +671,7 @@ class ResumePositionUpdater():
 
         result=self.writeFile(filepath, xml)
         readStat=xbmcvfs.Stat(filepath)
-        if tracing: xbmc.log("%s %s file size %d not same as the XML %d" % (addon_name,filepath,readStat.st_size(),len(xml)),xbmc.LOGDEBUG)
+        if tracing: xbmc.log("%s %s file size %d vs, the XML %d" % (addon_name,filepath,readStat.st_size(),len(xml)),xbmc.LOGDEBUG)
         if readStat.st_size() != len(xml):
             raise self.FileWriteCollision("after-write file size not same as the XML") 
 
@@ -678,6 +699,8 @@ class ResumePositionUpdater():
         if totalElement.text != str(playerState.position[1]):
             self.setElementText(totalElement,str(playerState.position[1]))
             dirty = True
+        if self.PlayerAtEnd(playerState.position):
+            dirty = self.SetWatchedElement(dom) or dirty
         return (success,dirty)
  
     def findOrCreateElement( self,  parent, elementName, okToCreate):
