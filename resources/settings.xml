@@ -32,5 +32,5 @@
     <setting id="endofmediaaccuracy" type="slider" label="32206" default="60"
          option="int" enable="eq(-1,true)" />
     <setting id="updatewatchedatend" type="bool" label="32207" default="false" />
-        </category>
+  </category> 
 </settings>
