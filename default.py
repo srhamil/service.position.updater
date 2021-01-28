@@ -633,13 +633,12 @@ class ResumePositionUpdater():
                     if tracing: xbmc.log("%s callback result is %s" %(addon_name, str(result)), xbmc.LOGDEBUG)
                     (success,dirty) = result
                     if success:
+                        done=True
                         if dirty:
                             changes = True
                             success = self.WriteDomToXmlFile(dom,playerState.nfoFile,readstat)
-                            done=True
                     else:
-                        if tracing: xbmc.log("%s read/parse of %s failed" % (addon_name, playerState.nfoFile), xbmc.DEBUG)
-                        done=True
+                        if tracing: xbmc.log("%s update of %s failed" % (addon_name, playerState.nfoFile), xbmc.DEBUG)
                 except self.FileWriteCollision as e:
                     # something else touched the file between the time we read it and now. Wait a bit and try again
                     if tracing: xbmc.log('%s FileWriteCollision %s on %s' %(addon_name,e.message,playerState.nfoFile),xbmc.LOGDEBUG)
@@ -688,7 +687,7 @@ class ResumePositionUpdater():
         dirty = self.setElementText(watchedElement,'true' if playcount > 0  else 'false') or dirty or localDirty
          # set the lastplayed element
         (watchedElement,localDirty) = self.findOrCreateElement(root,'lastplayed',True)
-        dirty = self.setElementText(watchedElement,datetime.now().isoformat()) or dirty or localDirty
+        dirty = self.setElementText(watchedElement,str(datetime.today().date())) or dirty or localDirty
         return (True,dirty)
  
 
