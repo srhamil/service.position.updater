@@ -23,7 +23,7 @@ from time import time
 from xml.dom import minidom
 from os import path
 import random
-import traceback
+import traceback, sys
 from datetime import datetime
 
 
@@ -182,12 +182,20 @@ class ResumePositionUpdater():
   
 # -------------------------------- RPC Message handling -----------------------------------------
     def handleMsg(self, msg):
-        jsonmsg = json.loads(msg)        
-        method = jsonmsg['method']
-        if tracing: xbmc.log("{0} handlemsg {1} ".format(addon_name,msg),xbmc.LOGDEBUG)
-        if method in self.methodDict:
-            methodHandler = self.methodDict[method]
-            methodHandler(jsonmsg)
+        try:
+            jsonmsg = json.loads(msg)        
+            method = jsonmsg['method']
+            if method in self.methodDict:
+                if tracing: xbmc.log("{0} processing RPC method {1} ".format(addon_name,msg),xbmc.LOGDEBUG)
+                methodHandler = self.methodDict[method]
+                methodHandler(jsonmsg)
+            else:
+                if tracing: xbmc.log("{0} ignored RPC method {1} ".format(addon_name,msg),xbmc.LOGDEBUG)
+        except Exception:
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            xbmc.log("{0} handleMsg({1}) failed with {2}".format(addon_name, msg, \
+                traceback.format_exception(exc_type, exc_value, exc_traceback)))
+
             
 
     def listen(self):
@@ -249,10 +257,12 @@ class ResumePositionUpdater():
     def OnUpdate(self,jsonmsg):
         self.logEvent(jsonmsg)
         updateWatchedAtEnd = addon.getSetting('updatewatchedatend') == 'true'
+        #TODO: how about the watched flag and position?
         if updateWatchedAtEnd and 'playcount' in jsonmsg['params']['data']:
             playerState = self.selectPlayerStateForMessage(jsonmsg)
+            strPlaycount = jsonmsg['params']['data']['playcount']
+           #TODO: do we need a playher state for a library update?
             if playerState:
-                strPlaycount = jsonmsg['params']['data']['playcount']
                 try:
                     playcount = int(strPlaycount)
                 except Exception:
@@ -272,9 +282,7 @@ class ResumePositionUpdater():
 
     def CommonSaveProcessingCallback(self,*args):
        # (playerState,saveToDb,saveToNfo)=args
-        playerState=args[0]
-        saveToDb=args[1]
-        saveToNfo=args[2]
+        (playerState,saveToDb,saveToNfo)= args
         if tracing: xbmc.log("%s CommonSaveProcessingCallback(%s,saveToDb=%s,saveToNfo=%s) " % (addon_name,str(playerState),str(saveToDb),str(saveToNfo)),xbmc.LOGDEBUG)
         if self.PositionInRange(playerState.position):
             if saveToDb:self.SavePositionToDb(playerState)
@@ -378,11 +386,16 @@ class ResumePositionUpdater():
     # this is used to prevent resume poistions being saved at the fornt and end of the media
     # especially common cases where the play is stopped when the end credits roll
     def PositionInRange(self,position):
+        result=False
         if tracing: xbmc.log('%s PositionInRange(%s) ignoresecondsatstart=%s ignorepercentatend=%s' % (addon_name,str(position),str(self.ignoresecondsatstart),str(self.ignorepercentatend)),xbmc.LOGDEBUG)
-        if not position or position[0] < self.ignoresecondsatstart: return False
-        percentComplete = 100.0 * position[0] / position[1]
-        if tracing: xbmc.log('%s  %f <= %f' % (addon_name,percentComplete,100.0-self.ignorepercentatend),xbmc.LOGDEBUG)
-        return percentComplete <= 100.0-self.ignorepercentatend
+        if  position:
+            startPercentage = 100.0*self.ignoresecondsatstart / position[1]
+            endPercentage = 100.0 - self.ignorepercentatend
+            percentComplete = 100.0 * position[0] / position[1]
+            result = percentComplete >= startPercentage and percentComplete <= endPercentage
+            if tracing: xbmc.log('%s perentComplete %f is %sin range (%f,%f)' % (addon_name,percentComplete,  \
+                '' if result else 'not ',startPercentage,endPercentage),xbmc.LOGDEBUG)
+        return result
 
         
     # returns True of the player position meets the criteria for the "end" of the media.
@@ -542,9 +555,7 @@ class ResumePositionUpdater():
     # does the work of saving the resume position to the media DB 
     # requires args  mediaType, mediaId, and a position tuple
     def SavePositionToDbCallback(self,*extras):
-        mediaType = extras[0]
-        mediaId = extras[1]
-        position = extras[2]
+        (mediaType,mediaId,position) = extras
         if tracing: xbmc.log("%s SavePositionToDbCallback(%s,%d,(%d,%d)) " % (addon_name,mediaType,mediaId,position[0],position[1]),xbmc.LOGDEBUG)
         if mediaType == 'movie':
             self.SaveMoviePositionToDb(mediaId, position)
@@ -615,7 +626,7 @@ class ResumePositionUpdater():
     # This deals with possible nfo update collisikon between multiple threads by detecting collisions. 
     # if a collisikon occurs it tries again.
     def CollisionTolerantPlayerNfoUpdate(self,playerState,callback,*extras):
-        if tracing: xbmc.log('%s CollisionTolerantPlayerNfoUpdate(%s)' %(addon_name,playerState),xbmc.LOGDEBUG)
+        if tracing: xbmc.log('%s CollisionTolerantPlayerNfoUpdate(%s,%s,%s)' %(addon_name,playerState,callback,extras),xbmc.LOGDEBUG)
         if playerState.playingFile is None:
            if tracing: xbmc.log("%s no known file is playing so can't find corresponding nfo" % (addon_name), xbmc.LOGDEBUG)
            return
@@ -629,7 +640,7 @@ class ResumePositionUpdater():
                 try:
                     attempts += 1
                     (dom,readstat) = self.ReadXmlFileIntoDom(playerState.nfoFile)
-                    result = callback(playerState,dom,extras)
+                    result = callback(playerState,dom,*extras)
                     if tracing: xbmc.log("%s callback result is %s" %(addon_name, str(result)), xbmc.LOGDEBUG)
                     (success,dirty) = result
                     if success:
@@ -659,35 +670,24 @@ class ResumePositionUpdater():
     def EndOfMediaNfoUpdateCallback(self,playerState,dom,*extras):
         success=True
         dirty=False
-        if tracing: xbmc.log('%s EndOfMediaNfoUpdateCallback(%s)' %(addon_name,playerState),xbmc.LOGDEBUG)
-        root = dom.getroot()
-        resumeElement = root.find("resume")
-        if resumeElement is not None:
-            root.remove(resumeElement)
-            dirty = True
+        if tracing: xbmc.log('%s EndOfMediaNfoUpdateCallback(%s,%s,%s)' %(addon_name,playerState,dom,extras),xbmc.LOGDEBUG)
+        dirty = self.RemoveElement(dom.getroot(),"resume")
         return (success,dirty)
-
  
-    # maintains the ndo watched and playcount elements
+    # maintains the nfo watched, playcount, and lastplayed elements
     def SetNfoPlayCountCallback(self,playerstate,dom,*extras):
-        (playcount)=extras[0][0]
+        (playcount)=extras
         if tracing: xbmc.log('%s SetNfoPlayCountCallback(%s,dom,%s)' %(addon_name,str(playerstate),str(playcount)),xbmc.LOGDEBUG)
         root=dom.getroot()
-        # update the playcount or remove the element if its 0
+        dirty=False
         if playcount > 0:
-            (playCountElement,dirty) = self.findOrCreateElement(root,'playcount',True)
-            dirty = self.setElementText(playCountElement,str(playcount)) or dirty
+            dirty = self.SetSimpleElement(root,'playcount',playcount) or dirty
+            dirty = self.SetSimpleElement(root,'watched','true') or dirty
+            dirty = self.SetSimpleElement(root,'lastplayed',datetime.today().date()) or dirty
         else:
-            playcountElt = root.findElement('playcount')
-            if playcountElt is not None:
-                root.remove(playcountElt)
-                dirty = True
-        # update the watched flag
-        (watchedElement,localDirty) = self.findOrCreateElement(root,'watched',True)
-        dirty = self.setElementText(watchedElement,'true' if playcount > 0  else 'false') or dirty or localDirty
-         # set the lastplayed element
-        (watchedElement,localDirty) = self.findOrCreateElement(root,'lastplayed',True)
-        dirty = self.setElementText(watchedElement,str(datetime.today().date())) or dirty or localDirty
+            dirty = self.RemoveElement(root,'playcount') or dirty
+            dirty = self.SetSimpleElement(root,'watched','false') or dirty
+            dirty = self.SetSimpleElement(root,'lastplayed','') or dirty
         return (True,dirty)
  
 
@@ -698,18 +698,35 @@ class ResumePositionUpdater():
 
         root = dom.getroot()
         (resumeElement,dirty) = self.findOrCreateElement(root,'resume', True)
-        (positionElement,newElement) = self.findOrCreateElement(resumeElement,'position',True)
-        dirty = self.setElementText(positionElement,str(playerState.position[0])) or dirty or newElement
-        (totalElement,dirty) = self.findOrCreateElement(resumeElement,'total',True)
-        dirty = self.setElementText(totalElement,str(playerState.position[1])) or dirty or newElement
+        dirty = self.SetSimpleElement(resumeElement,'position',playerState.position[0]) or dirty
+        dirty = self.SetSimpleElement(resumeElement,'total',playerState.position[1]) or dirty
         return (success,dirty)
  
  # ------------- XML file and DOMUtility methods ------------------------------------------------------
 
+    def SetSimpleElement(self,parentElement,elementName,value):
+        if tracing: xbmc.log("%s thread SetSimpleElement(%s,%s,%s)" % (addon_name,parentElement,elementName,str(value)),xbmc.LOGDEBUG)
+        dirty=False
+        element = parentElement.find(elementName)
+        if element == None:
+            element = ET.SubElement(parentElement,elementName)
+            dirty=True
+        currentValue = element.text
+        if ( str(value) != currentValue ): 
+            element.text = str(value)
+            dirty = True
+        return dirty
 
- 
-      
-        
+
+    def RemoveElement(self,parentElement,elementName):
+        dirty = False
+        element = parentElement.find(elementName)
+        if element is not None:
+            parentElement.remove(element)
+            dirty = True
+        return dirty
+
+
     # reads the XML file path into a ElementTree DOM
     def ReadXmlFileIntoDom(self, filepath):
         dom=None
