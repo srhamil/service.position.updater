@@ -32,6 +32,7 @@ from datetime import datetime
 
 addon = xbmcaddon.Addon('service.position.updater')
 addon_name = addon.getAddonInfo('name')
+addon_icon = addon.getAddonInfo('icon')
 
 delay = '4000'
 logo = 'special://home/addons/service.position.updater/icon.png'
@@ -182,6 +183,7 @@ class ResumePositionUpdater():
   
 # -------------------------------- RPC Message handling -----------------------------------------
     def handleMsg(self, msg):
+        method=None
         try:
             jsonmsg = json.loads(msg)        
             method = jsonmsg['method']
@@ -195,6 +197,9 @@ class ResumePositionUpdater():
             exc_type, exc_value, exc_traceback = sys.exc_info()
             xbmc.log("{0} handleMsg({1}) failed with {2}".format(addon_name, msg, \
                 traceback.format_exception(exc_type, exc_value, exc_traceback)))
+            notification_msg = "handleMsg({0}) failed with {1}".format(method, \
+                traceback.format_exception_only(exc_type, exc_value))
+            xbmc.executebuiltin('Notification(%s, %s, %d, %s)'%(addon_name,notification_msg, 5000, addon_icon))
 
             
 
@@ -389,12 +394,17 @@ class ResumePositionUpdater():
         result=False
         if tracing: xbmc.log('%s PositionInRange(%s) ignoresecondsatstart=%s ignorepercentatend=%s' % (addon_name,str(position),str(self.ignoresecondsatstart),str(self.ignorepercentatend)),xbmc.LOGDEBUG)
         if  position:
-            startPercentage = 100.0*self.ignoresecondsatstart / position[1]
-            endPercentage = 100.0 - self.ignorepercentatend
-            percentComplete = 100.0 * position[0] / position[1]
-            result = percentComplete >= startPercentage and percentComplete <= endPercentage
-            if tracing: xbmc.log('%s perentComplete %f is %sin range (%f,%f)' % (addon_name,percentComplete,  \
-                '' if result else 'not ',startPercentage,endPercentage),xbmc.LOGDEBUG)
+            if position[1] == 0:
+                # some DVD video segment have a 0 total time
+                result = False
+                if tracing: xbmc.log('%s perentComplete video segment position (%s,%d) has no known length' % (addon_name,position[0],position[1]))
+            else:
+                startPercentage = 100.0*self.ignoresecondsatstart / position[1]
+                endPercentage = 100.0 - self.ignorepercentatend
+                percentComplete = 100.0 * position[0] / position[1]
+                result = percentComplete >= startPercentage and percentComplete <= endPercentage
+                if tracing: xbmc.log('%s perentComplete %f is %sin range (%f,%f)' % (addon_name,percentComplete,  \
+                    '' if result else 'not ',startPercentage,endPercentage),xbmc.LOGDEBUG)
         return result
 
         
