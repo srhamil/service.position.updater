@@ -397,7 +397,7 @@ class ResumePositionUpdater():
             if position[1] == 0:
                 # some DVD video segment have a 0 total time
                 result = False
-                if tracing: xbmc.log('%s perentComplete video segment position (%s,%d) has no known length' % (addon_name,position[0],position[1]))
+                if tracing: xbmc.log('%s perentComplete video segment position (%s,%d) has no known length' % (addon_name,position[0],position[1])) 
             else:
                 startPercentage = 100.0*self.ignoresecondsatstart / position[1]
                 endPercentage = 100.0 - self.ignorepercentatend
