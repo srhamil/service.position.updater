@@ -50,6 +50,7 @@ class ResumePositionUpdater():
                           "Player.OnSeek": self.OnSeek,
                           "Player.OnStop": self.OnStop,
                           "VideoLibrary.OnUpdate": self.OnUpdate,
+                          "Player.OnAVStart": self.OnAVStart,
                           }
 
         self.playcountminimumpercent = self.GetKodiAdvancedSettingInt('playcountminimumpercent',90)
@@ -120,6 +121,14 @@ class ResumePositionUpdater():
         handleOnStop = False
         playingFile = None
         nfoFile = None
+
+        def reset(self):
+            self.mediaType = None
+            self.mediaId = None
+            self.position=None
+            self.playingFile = None
+            self.nfoFile = None
+
         def __init__(self, playerid):
             self.playerid = playerid
 
@@ -196,10 +205,14 @@ class ResumePositionUpdater():
         except Exception:
             exc_type, exc_value, exc_traceback = sys.exc_info()
             xbmc.log("{0} handleMsg({1}) failed with {2}".format(addon_name, msg, \
-                traceback.format_exception(exc_type, exc_value, exc_traceback)))
+                traceback.format_exception_only(exc_type, exc_value)))
+            for tracemsg in traceback.format_tb(exc_traceback):
+                xbmc.log('{0} {1}'.format(addon_name,tracemsg))
             notification_msg = "handleMsg({0}) failed with {1}".format(method, \
                 traceback.format_exception_only(exc_type, exc_value))
-            xbmc.executebuiltin('Notification(%s, %s, %d, %s)'%(addon_name,notification_msg, 5000, addon_icon))
+            xbmc.executebuiltin('Notification(%s, Error: %s, %d, %s)'%(addon_name,notification_msg, int(delay), addon_icon))
+            xbmc.sleep(int(delay))
+
 
             
 
@@ -234,11 +247,14 @@ class ResumePositionUpdater():
         self.logEvent(jsonmsg)
         playerState = self.selectPlayerStateForMessage(jsonmsg)
         if playerState:
+            if tracing: xbmc.log('%s asking worker thread to stop : %s' % (addon_name,playerState), xbmc.LOGDEBUG)       
+            # tel timer thread to stop
             playerState.handleOnStop = True
+            # wait for it to stop and clean it up
             self.stopTimer(playerState)
-            playerState.mediaType=None
-            playerState.mediaId=None
-
+            # clear other player state variables
+            if tracing: xbmc.log('%s resetting : %s' % (addon_name,playerState), xbmc.LOGDEBUG)       
+            playerState.reset()
         else:
             pass
 
@@ -273,6 +289,14 @@ class ResumePositionUpdater():
                 except Exception:
                     playcount = 0
                 self.CollisionTolerantPlayerNfoUpdate(playerState,self.SetNfoPlayCountCallback,playcount)
+
+    def OnAVStart(self,jsonmsg):
+        self.logEvent(jsonmsg)
+        playerState = self.selectPlayerStateForMessage(jsonmsg)
+        if playerState and (playerState.position is None or playerState.position == (0,0)):
+            if tracing: xbmc.log("%s OnAVStart setting initial position for player %d " % (addon_name,playerState.playerid),xbmc.LOGDEBUG)
+            playerState.position = self.GetPosition(playerState.playerid)
+      
 
     
 #----------------------------------------------------------------------------------------------------    
@@ -354,7 +378,7 @@ class ResumePositionUpdater():
 
     def handlePlayerStarting(self,jsonmsg):
         playerState=self.selectPlayerStateForMessage(jsonmsg)
-        
+     
         tasks = list()
         now = time()
         if addon.getSetting('updateperiodically') == 'true':
@@ -392,12 +416,13 @@ class ResumePositionUpdater():
     # especially common cases where the play is stopped when the end credits roll
     def PositionInRange(self,position):
         result=False
-        if tracing: xbmc.log('%s PositionInRange(%s) ignoresecondsatstart=%s ignorepercentatend=%s' % (addon_name,str(position),str(self.ignoresecondsatstart),str(self.ignorepercentatend)),xbmc.LOGDEBUG)
+        if tracing: xbmc.log('%s PositionInRange(%s) ignoresecondsatstart=%s ignorepercentatend=%s' \
+            % (addon_name,str(position),str(self.ignoresecondsatstart),str(self.ignorepercentatend)),xbmc.LOGDEBUG)
         if  position:
             if position[1] == 0:
                 # some DVD video segment have a 0 total time
                 result = False
-                if tracing: xbmc.log('%s perentComplete video segment position (%s,%d) has no known length' % (addon_name,position[0],position[1])) 
+                if tracing: xbmc.log('%s perentComplete video segment position (%d,%d) has no known length' % (addon_name,position[0],position[1])) 
             else:
                 startPercentage = 100.0*self.ignoresecondsatstart / position[1]
                 endPercentage = 100.0 - self.ignorepercentatend
@@ -412,6 +437,8 @@ class ResumePositionUpdater():
     # this varies depending on where the advanced settings are being honored.
     def PlayerAtEnd(self,position):
         if not position: return False
+        if position[0] >= position[1]:
+            return True
         if addon.getSetting('honoradvsettings') == 'true':
             percentComplete = 100.0 * position[0] / position[1]
             return percentComplete > 100.0-self.ignorepercentatend
@@ -641,7 +668,7 @@ class ResumePositionUpdater():
            if tracing: xbmc.log("%s no known file is playing so can't find corresponding nfo" % (addon_name), xbmc.LOGDEBUG)
            return
         nfoFile = playerState.nfoFile
-        if nfoFile:
+        if nfoFile and xbmcvfs.exists(nfoFile):
             attempts=0
             done = False
             success = False
@@ -659,7 +686,7 @@ class ResumePositionUpdater():
                             changes = True
                             success = self.WriteDomToXmlFile(dom,playerState.nfoFile,readstat)
                     else:
-                        if tracing: xbmc.log("%s update of %s failed" % (addon_name, playerState.nfoFile), xbmc.DEBUG)
+                        if tracing: xbmc.log("%s update of %s failed" % (addon_name, playerState.nfoFile), xbmc.LOGDEBUG)
                 except self.FileWriteCollision as e:
                     # something else touched the file between the time we read it and now. Wait a bit and try again
                     if tracing: xbmc.log('%s FileWriteCollision %s on %s' %(addon_name,e.message,playerState.nfoFile),xbmc.LOGDEBUG)
@@ -704,12 +731,16 @@ class ResumePositionUpdater():
     # maintains the resume element in the dom
     def SavePositionToNfoCallback(self, playerState,dom,*extras):
         if tracing: xbmc.log("%s thread %s SavePositionToNfoCallback(%s)" % (addon_name,threading.current_thread().name,playerState),xbmc.LOGDEBUG)
-        success=True
-
-        root = dom.getroot()
-        (resumeElement,dirty) = self.findOrCreateElement(root,'resume', True)
-        dirty = self.SetSimpleElement(resumeElement,'position',playerState.position[0]) or dirty
-        dirty = self.SetSimpleElement(resumeElement,'total',playerState.position[1]) or dirty
+        success=False
+        dirty=False
+        if playerState.position:
+            root = dom.getroot()
+            (resumeElement,dirty) = self.findOrCreateElement(root,'resume', True)
+            dirty = self.SetSimpleElement(resumeElement,'position',playerState.position[0]) or dirty
+            dirty = self.SetSimpleElement(resumeElement,'total',playerState.position[1]) or dirty
+            success=True
+        else:
+            if tracing: xbmc.log("%s thread %s SavePositionToNfoCallback failed: no known position" % (addon_name,threading.current_thread().name),xbmc.LOGDEBUG)
         return (success,dirty)
  
  # ------------- XML file and DOMUtility methods ------------------------------------------------------
@@ -740,6 +771,7 @@ class ResumePositionUpdater():
     # reads the XML file path into a ElementTree DOM
     def ReadXmlFileIntoDom(self, filepath):
         dom=None
+        filestat=None
  
         if filepath is not None and xbmcvfs.exists(filepath):
             filestat=xbmcvfs.Stat(filepath)
@@ -766,16 +798,16 @@ class ResumePositionUpdater():
 
         if oldfilestat:
             currentfilestat=xbmcvfs.Stat(filepath)
-            if tracing: xbmc.log("%s %s size  read %d  now %d" % (addon_name, filepath,currentfilestat.st_size(),oldfilestat.st_size() ),xbmc.LOGDEBUG)
+ #           if tracing: xbmc.log("%s %s size  read %d  now %d" % (addon_name, filepath,currentfilestat.st_size(),oldfilestat.st_size() ),xbmc.LOGDEBUG)
             if currentfilestat.st_size() != oldfilestat.st_size():
                 raise self.FileWriteCollision("size changed since read")
-            if tracing: xbmc.log("%s %s modified time read  %d now %d" % (addon_name, filepath,currentfilestat.st_mtime(), oldfilestat.st_mtime() ),xbmc.LOGDEBUG)
+ #           if tracing: xbmc.log("%s %s modified time read  %d now %d" % (addon_name, filepath,currentfilestat.st_mtime(), oldfilestat.st_mtime() ),xbmc.LOGDEBUG)
             if currentfilestat.st_mtime() != oldfilestat.st_mtime():
                 raise self.FileWriteCollision("modified time changed since read")
 
         result=self.writeFile(filepath, xml)
         readStat=xbmcvfs.Stat(filepath)
-        if tracing: xbmc.log("%s %s file size %d vs, the XML %d" % (addon_name,filepath,readStat.st_size(),len(xml)),xbmc.LOGDEBUG)
+ #       if tracing: xbmc.log("%s %s file size %d vs, the XML %d" % (addon_name,filepath,readStat.st_size(),len(xml)),xbmc.LOGDEBUG)
         if readStat.st_size() != len(xml):
             raise self.FileWriteCollision("after-write file size not same as the XML") 
 
