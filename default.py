@@ -179,12 +179,20 @@ class ResumePositionUpdater():
             if tracing: xbmc.log("%s findNfoFileForMedia(%s)" % (addon_name, mediaFile),xbmc.LOGDEBUG)
             if mediaFile is None:
                 return None
+            filepath=None
             # handle the alternate location of movie.nfo which Kodi supports but does not recommend using
-            filepath = mediaFile.replace(path.splitext(mediaFile)[1], '.nfo')
-            filepath2 = mediaFile.replace(path.split(mediaFile)[1], 'movie.nfo')
-            if xbmcvfs.exists(filepath) == False and xbmcvfs.exists(filepath2):
-                filepath = filepath2
-            if tracing: xbmc.log("{0} updating {1}".format(addon_name,filepath), xbmc.LOGDEBUG)
+            mediaNfo = mediaFile.replace(path.splitext(mediaFile)[1], '.nfo')
+            movieNfo = mediaFile.replace(path.split(mediaFile)[1], 'movie.nfo')
+            if xbmcvfs.exists(mediaNfo):
+                filepath = mediaNfo
+            elif xbmcvfs.exists(movieNfo):
+                filepath = movieNfo
+            if filepath:
+                if tracing: 
+                    xbmc.log("{0} will be updating {1}".format(addon_name,filepath), xbmc.LOGDEBUG)
+            else:
+                 if tracing: 
+                    xbmc.log("{0} no .nfo file corresponds to {1}".format(addon_name,mediaFile), xbmc.LOGDEBUG)
             return filepath
 
 
@@ -386,7 +394,7 @@ class ResumePositionUpdater():
             task=self.TimerTask("Update Db for player"+str(playerState.playerid), \
                 playerState,period,self.SaveToDbPeriodicallyTask,now)
             tasks.append(task)
-        if addon.getSetting('updatenfoonstop') == "true":
+        if playerState.nfoFile and addon.getSetting('updatenfoonstop') == "true":
             onStopAccuracy = int(addon.getSetting('endofmediaaccuracy'))
             task=self.TimerTask("Remember Position for OnStop player"+str(playerState.playerid),  \
                 playerState,onStopAccuracy,self.SavePositionForOnStopTask,now)
