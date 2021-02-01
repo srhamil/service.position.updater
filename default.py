@@ -25,6 +25,7 @@ from os import path
 import random
 import traceback, sys
 from datetime import datetime
+from glob import glob
 
 
 
@@ -187,6 +188,11 @@ class ResumePositionUpdater():
                 filepath = mediaNfo
             elif xbmcvfs.exists(movieNfo):
                 filepath = movieNfo
+            elif self.isDvdFile(mediaFile):
+                fileParent = path.split(mediaFile)[0]
+                (mediaHomeFolder,fileParentName) = path.split(fileParent)
+                if fileParentName == "VIDEO_TS":
+                    filepath= self.findSingleNfoIn(mediaHomeFolder)
             if filepath:
                 if tracing: 
                     xbmc.log("{0} will be updating {1}".format(addon_name,filepath), xbmc.LOGDEBUG)
@@ -195,8 +201,36 @@ class ResumePositionUpdater():
                     xbmc.log("{0} no .nfo file corresponds to {1}".format(addon_name,mediaFile), xbmc.LOGDEBUG)
             return filepath
 
+        def isDvdFile(self,filepath):
+            filename = path.split(filepath)[1]
+            result = False
+            if filename.startswith("VIDEO_TS"):
+                result = True
+            if filename.startswith("VTS_"):
+                result = True
+            if tracing: 
+                xbmc.log("{0} isDvdFile({1}): {2}".format(addon_name,filepath,result), xbmc.LOGDEBUG)
+            return result
+
+        def findSingleNfoIn(self,filepath):
+            result = None
+            if path.isdir(filepath):
+                candidates = glob(path.join(filepath,"*.nfo"))
+                if len(candidates) == 0:
+                    pass
+                elif len(candidates) == 1:
+                    result = candidates[0]
+                else:
+                    pass
+            if tracing: 
+                xbmc.log("{0} findSingleNfoIn({1}): {2}".format(addon_name,filepath,result),xbmc.LOGDEBUG)
+ 
+            return result
+
 
     player = [PlayerState(0),PlayerState(1)]
+
+ 
   
 # -------------------------------- RPC Message handling -----------------------------------------
     def handleMsg(self, msg):
@@ -544,15 +578,21 @@ class ResumePositionUpdater():
                     self.CollisionTolerantPlayerNfoUpdate(playerState,self.SavePositionToNfoCallback)
             if tracing: xbmc.log('%s thread %s exiting normally' % (addon_name,threadName),\
                 xbmc.LOGDEBUG)
-        except Exception as e:
-            xbmc.log("%s thread %s died due  to %s" % \
-                  (addon_name,threadName,str(e)),  \
-                      xbmc.LOGDEBUG)
-            xbmc.log("%s" % (traceback.print_exc()),xbmc.LOGDEBUG)
-        playerState.running = False
-        playerState.handleOnStop = False
-        playerState.position = None
-        playerState.timerThread = None
+        except Exception:
+            exc_type, exc_value, exc_traceback = sys.exc_info()
+            xbmc.log("{0} thread {1} failed with {2}".format(addon_name, threading.currentThread().getName(),\
+                traceback.format_exception_only(exc_type, exc_value)))
+            for tracemsg in traceback.format_tb(exc_traceback):
+                xbmc.log('{0} {1}'.format(addon_name,tracemsg))
+            notification_msg = "{0} thread {1} failed with {2}".format( addon_name, threading.currentThread().getName(),\
+                traceback.format_exception_only(exc_type, exc_value))
+            xbmc.executebuiltin('Notification(%s, Error: %s, %d, %s)'%(addon_name,notification_msg, int(delay), addon_icon))
+            xbmc.sleep(int(delay))
+        finally:
+            playerState.running = False
+            playerState.handleOnStop = False
+            playerState.position = None
+            playerState.timerThread = None
             
     # starts a new periodic timer on the player, destroying the current one if it exists
     def startTimer(self,playerState,tasks): 
