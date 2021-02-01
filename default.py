@@ -52,6 +52,8 @@ class ResumePositionUpdater():
                           "Player.OnStop": self.OnStop,
                           "VideoLibrary.OnUpdate": self.OnUpdate,
                           "Player.OnAVStart": self.OnAVStart,
+                          "Playlist.OnAdd": self.OnAdd,
+                          "Playlist.OnClear": self.OnClear,
                           }
 
         self.playcountminimumpercent = self.GetKodiAdvancedSettingInt('playcountminimumpercent',90)
@@ -122,6 +124,7 @@ class ResumePositionUpdater():
         handleOnStop = False
         playingFile = None
         nfoFile = None
+        lastQueuedMovie = None
 
         def reset(self):
             self.mediaType = None
@@ -129,6 +132,7 @@ class ResumePositionUpdater():
             self.position=None
             self.playingFile = None
             self.nfoFile = None
+            self.lastQueuedMovie = None
 
         def __init__(self, playerid):
             self.playerid = playerid
@@ -193,6 +197,14 @@ class ResumePositionUpdater():
                 (mediaHomeFolder,fileParentName) = path.split(fileParent)
                 if fileParentName == "VIDEO_TS":
                     filepath= self.findSingleNfoIn(mediaHomeFolder)
+            elif self.isBluerayFile(mediaFile):
+                fileParent = path.split(mediaFile)[0]
+                (mediaHomeFolder,fileParentName) = path.split(fileParent)
+                filepath= self.findSingleNfoIn(fileParent)
+                if filepath is None and fileParentName == "BDMV":
+                    filepath= self.findSingleNfoIn(mediaHomeFolder)
+
+               
             if filepath:
                 if tracing: 
                     xbmc.log("{0} will be updating {1}".format(addon_name,filepath), xbmc.LOGDEBUG)
@@ -206,10 +218,23 @@ class ResumePositionUpdater():
             result = False
             if filename.startswith("VIDEO_TS"):
                 result = True
-            if filename.startswith("VTS_"):
+            elif filename.startswith("VTS_"):
                 result = True
             if tracing: 
                 xbmc.log("{0} isDvdFile({1}): {2}".format(addon_name,filepath,result), xbmc.LOGDEBUG)
+            return result
+
+        def isBluerayFile(self,filepath):
+            filename = path.split(filepath)[1]
+            result = False
+            if filename.endswith(".bdmv"):
+                result = True
+            elif filename.endswith(".msts"):
+                result = True
+            elif filename.endswith(".mpls"):
+                result = True
+            if tracing: 
+                xbmc.log("{0} isBluerayFile({1}): {2}".format(addon_name,filepath,result), xbmc.LOGDEBUG)
             return result
 
         def findSingleNfoIn(self,filepath):
@@ -338,6 +363,15 @@ class ResumePositionUpdater():
         if playerState and (playerState.position is None or playerState.position == (0,0)):
             if tracing: xbmc.log("%s OnAVStart setting initial position for player %d " % (addon_name,playerState.playerid),xbmc.LOGDEBUG)
             playerState.position = self.GetPosition(playerState.playerid)
+
+    def OnAdd(self,jsonmsg):
+        self.logEvent(jsonmsg)
+        self.handlePlaylistOnAdd(jsonmsg)        
+      
+
+    def OnClear(self,jsonmsg):
+        self.logEvent(jsonmsg)
+        self.handlePlaylistOnClear(jsonmsg)        
       
 
     
@@ -369,8 +403,8 @@ class ResumePositionUpdater():
     def selectPlayerStateForMessage(self,jsonmsg):
         selectedPlayer=None
         itemType = self.getItemTypeParameter(jsonmsg)
-        itemId = self.getItemidParameter(jsonmsg)
         playerId = self.getPlayeridParameter(jsonmsg)
+        itemId = self.getItemidParameter(jsonmsg)
         if playerId is not None:
             selectedPlayer = self.player[playerId]
         elif  itemType is not None and itemId is not None:
@@ -382,8 +416,18 @@ class ResumePositionUpdater():
                 xbmc.log('%s no player seems to be playing %s %d' %  \
                      (addon_name,itemType, itemId),  \
                       xbmc.LOGDEBUG)
-        if selectedPlayer is not None and itemType is not None and itemId is not None:
-            selectedPlayer.setMedia(itemType,itemId)
+        if selectedPlayer is not None and itemType is not None:
+            if itemId is not None:
+                selectedPlayer.setMedia(itemType,itemId)
+            else:
+                title = self.getTitleParameter(jsonmsg)
+                if tracing:
+                    xbmc.log('%s checking for Blueray title=%s lastQueuedMovie=%s' %\
+                        (addon_name, title,str(selectedPlayer.lastQueuedMovie)),xbmc.LOGDEBUG)
+                if itemType == "movie" and title.startswith("Play main title:") and selectedPlayer.lastQueuedMovie is not None:
+                    xbmc.log('%s appears to be starting from the Bluray index.bdmv' %\
+                        (addon_name),xbmc.LOGDEBUG)
+                    selectedPlayer.setMedia(itemType,selectedPlayer.lastQueuedMovie)
         return selectedPlayer
          
     def getPlayeridParameter(self,jsonmsg):
@@ -399,6 +443,16 @@ class ResumePositionUpdater():
     def getItemidParameter(self,jsonmsg):
         try:
             playerid = int(jsonmsg["params"]["data"]["item"]["id"])
+            return playerid
+        except Exception as e:
+            pass
+            if tracing: xbmc.log('%s bad or missing JSON params data item id %s %s' %\
+                        (addon_name, jsonmsg, e),xbmc.LOGDEBUG)
+        return None
+         
+    def getTitleParameter(self,jsonmsg):
+        try:
+            playerid = jsonmsg["params"]["data"]["item"]["title"]
             return playerid
         except Exception as e:
             pass
@@ -490,6 +544,32 @@ class ResumePositionUpdater():
 
 
 
+    def handlePlaylistOnAdd(self, jsonmsg):
+        # keep track of the movie id when it is queued. In some edge cases the OnPlay message will
+        # no have a movie id 
+        try:
+            playlistId = int( jsonmsg["params"]["data"]["playlistid"] )
+            position = int( jsonmsg["params"]["data"]["position"] ) 
+            itemType = jsonmsg["params"]["data"]["item"]["type"]       
+            itemId = int(jsonmsg["params"]["data"]["item"]["id"] ) 
+            if playlistId == 1 and position == 0 and itemType == "movie" and itemId is not None:
+               if tracing: xbmc.log("%s OnAdd saving queued movie id %d" %(addon_name,itemId),xbmc.LOGDEBUG)
+               self.player[playlistId].lastQueuedMovie = itemId
+            else:
+                self.player[playlistId].lastQueuedMovie = None
+        except:
+            pass
+
+
+    def handlePlaylistOnClear(self, jsonmsg):
+        try:
+            playlistId = int( jsonmsg["params"]["data"]["playlistid"] )
+            if playlistId == 1 :
+                self.player[playlistId].lastQueuedMovie = None
+        except:
+            pass
+
+ 
 
  
 # -------------- periodic update code --------------------------
