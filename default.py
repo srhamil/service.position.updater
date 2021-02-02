@@ -168,7 +168,7 @@ class ResumePositionUpdater():
                     response = xbmc.executeJSONRPC(request )
                     if tracing: xbmc.log("%s response: %s" % (addon_name,response),xbmc.LOGDEBUG)
                     result = json.loads(response)["result"]["moviedetails"][propertyName]
-                elif self.mediaId == u'episode':
+                elif self.mediaType == u'episode':
                     request='{"jsonrpc":"2.0","method":"VideoLibrary.GetEpisodeDetails","params":{"episodeid":%d,"properties":[\"%s\"]},"id":1}' %(self.mediaId,propertyName) 
                     if tracing: xbmc.log("%s request: %s" % (addon_name,request),xbmc.LOGDEBUG)
                     response = xbmc.executeJSONRPC(request)
@@ -348,13 +348,11 @@ class ResumePositionUpdater():
         #TODO: how about the watched flag and position?
         if updateWatchedAtEnd and 'playcount' in jsonmsg['params']['data']:
             playerState = self.selectPlayerStateForMessage(jsonmsg)
-            strPlaycount = jsonmsg['params']['data']['playcount']
-           #TODO: do we need a playher state for a library update?
-            if playerState:
-                try:
-                    playcount = int(strPlaycount)
-                except Exception:
-                    playcount = 0
+            if playerState is None:
+                playerState = ResumePositionUpdater.PlayerState(-1)
+                playerState.setMedia(self.getItemTypeParameter(jsonmsg),self.getItemidParameter(jsonmsg))
+            playcount = jsonmsg['params']['data']['playcount']
+            if playcount is not None and playerState and playerState.nfoFile:
                 self.CollisionTolerantPlayerNfoUpdate(playerState,self.SetNfoPlayCountCallback,playcount)
 
     def OnAVStart(self,jsonmsg):
@@ -379,6 +377,7 @@ class ResumePositionUpdater():
  
     def CommonSaveOnEventProcessing(self,playerState,jsonmsg,saveToDb,saveToNfo):
         self.logEvent(jsonmsg)
+        if tracing: xbmc.log("%s CommonSaveProcessingCallback(%s,jsonmsg,saveToDb=%s,saveToNfo=%s) " % (addon_name,str(playerState),str(saveToDb),str(saveToNfo)),xbmc.LOGDEBUG)
         playerState.position = self.GetPosition(playerState.playerid)
         self.CommonSaveProcessing(playerState,saveToDb,saveToNfo)
  
@@ -449,6 +448,16 @@ class ResumePositionUpdater():
             if tracing: xbmc.log('%s bad or missing JSON params data item id %s %s' %\
                         (addon_name, jsonmsg, e),xbmc.LOGDEBUG)
         return None
+        
+    def getPlaycountParameter(self,jsonmsg):
+        try:
+            playcount = int(jsonmsg["params"]["data"]["playcount"])
+            return int(playcount)
+        except Exception as e:
+            pass
+            if tracing: xbmc.log('%s bad or missing JSON params data item id %s %s' %\
+                        (addon_name, jsonmsg, e),xbmc.LOGDEBUG)
+        return None
          
     def getTitleParameter(self,jsonmsg):
         try:
@@ -504,7 +513,6 @@ class ResumePositionUpdater():
                     % (addon_name,threading.currentThread().name,str(playerState.position), \
                         playerState.mediaType,playerState.mediaId), \
                 xbmc.LOGDEBUG)
-            self.SavePositionToDb(playerState) 
             self.CommonSaveProcessing(playerState,True,False)
             
     # returns True if the position of the player is between the start and end regions.
@@ -841,7 +849,7 @@ class ResumePositionUpdater():
  
     # maintains the nfo watched, playcount, and lastplayed elements
     def SetNfoPlayCountCallback(self,playerstate,dom,*extras):
-        (playcount)=extras
+        playcount=extras[0]
         if tracing: xbmc.log('%s SetNfoPlayCountCallback(%s,dom,%s)' %(addon_name,str(playerstate),str(playcount)),xbmc.LOGDEBUG)
         root=dom.getroot()
         dirty=False
