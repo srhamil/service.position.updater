@@ -9,6 +9,10 @@
     <setting id="honoradvsettings"  type="bool"      label="32011" default="true"/>
     <setting id="honorspecial101"   type="bool"      label="32012" default="false"
           enable="eq(-1,true)+false"/>
+    <setting label="32020" type="lsep" />
+    <setting id="notifyonfault" type="bool" label="32021" default="true" />
+    <setting id="notifyonnfoupdate" type="bool" label="32022" default="false" />
+    <setting id="notifyondbupdate" type="bool" label="32023" default="false" />
 
   </category>
   
@@ -21,16 +25,18 @@
     <setting id="updateperiod"     type="slider"    label="32105" option="int"
           default="60" range="1,600" enable="eq(-1,true)" />
   </category>
-
+ 
   <category label="32200">
     <setting label="32201" type="lsep" />
-    <setting id="updatenfoonpause" type="bool" label="32202" default="false" />
+    <setting id="updatenfoonpause" type="bool" label="32202" default="true" />
     <setting id="updatenfoonseek" type="bool" label="32203" default="false" />
-    <setting id="updatenfoonstop" type="bool" label="32204" default="false" />  
+    <setting id="updatenfoonstop" type="bool" label="32204" default="true" />  
     <setting id="removeonendofmedia" type="bool" label="32205" default="true"
          enable="eq(-1,true)" />
     <setting id="endofmediaaccuracy" type="slider" label="32206" default="60"
          option="int" enable="eq(-1,true)" />
-    <setting id="updatewatchedatend" type="bool" label="32207" default="false" />
+    <setting label="32207" type="lsep" />
+    <setting id="updateonwatchedstate" type="bool" label="32208" default="true" />
+    <setting id="updateonpositionreset" type="bool" label="32209" default="true" />
   </category> 
 </settings>

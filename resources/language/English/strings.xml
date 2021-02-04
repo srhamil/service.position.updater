@@ -9,6 +9,11 @@
   <string id="32011">Honor advancedsettings.xml</string>
   <string id="32012">      Honor ignorepercentatend=101</string>
 
+  <string id="32020">Notifications</string>
+  <string id="32021">When plug has a software failure</string>
+  <string id="32022">When the nfo file is updated</string>
+  <string id="32023">When the database is updated</string>
+
   <string id="32100">Media Database</string>
   <string id="32101">Update the resume position in the database</string>
   <string id="32102">On pause</string>
@@ -23,6 +28,8 @@
   <string id="32204">On stop</string>
   <string id="32205">       Remove resume position at media start or end</string>
   <string id="32206">       Accuracy in seconds</string>
-  <string id="32207">Save watched flag and watchCount when Kodi updates media DB</string>
+  <string id="32207">Synchronize with media DB</string>
+  <string id="32208">On changed in watched state</string>
+  <string id="32209">On resume position reset</string>
 
 </strings>

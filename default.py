@@ -35,10 +35,12 @@ addon = xbmcaddon.Addon('service.position.updater')
 addon_name = addon.getAddonInfo('name')
 addon_icon = addon.getAddonInfo('icon')
 
-delay = '4000'
+delay = '5000'
 logo = 'special://home/addons/service.position.updater/icon.png'
 
 tracing = True
+
+monitor = xbmc.Monitor()
 
 class ResumePositionUpdater():
     onStopAccuracy = 5
@@ -66,7 +68,7 @@ class ResumePositionUpdater():
         
         self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.s.setblocking(1)
-        xbmc.sleep(int(delay))
+        xbmc.sleep(1000)
         try:
             self.s.connect((self.XBMCIP, self.XBMCPORT))
         except Exception as e:
@@ -179,6 +181,15 @@ class ResumePositionUpdater():
 
             if tracing: xbmc.log('%s LookupMediaProperty(%s,%d,%s): %s' % (addon_name,self.mediaType,self.mediaId,propertyName,result), xbmc.LOGDEBUG)       
             return result
+
+        def LookupPositionInDb(self):
+            result = None
+            t = self.LookupMediaProperty('resume')
+            if t is not None:
+                position = int(t['position'])
+                total = int(t['total'])
+                result = (position,total)
+            return result
         
         def findNfoFileForMedia(self,mediaFile):
             if tracing: xbmc.log("%s findNfoFileForMedia(%s)" % (addon_name, mediaFile),xbmc.LOGDEBUG)
@@ -275,10 +286,8 @@ class ResumePositionUpdater():
                 traceback.format_exception_only(exc_type, exc_value)))
             for tracemsg in traceback.format_tb(exc_traceback):
                 xbmc.log('{0} {1}'.format(addon_name,tracemsg))
-            notification_msg = "handleMsg({0}) failed with {1}".format(method, \
-                traceback.format_exception_only(exc_type, exc_value))
-            xbmc.executebuiltin('Notification(%s, Error: %s, %d, %s)'%(addon_name,notification_msg, int(delay), addon_icon))
-            xbmc.sleep(int(delay))
+            if addon.getSetting('notifyonfault') == 'true':
+              self.GUIShowNotification("handleMsg failed, check kodi.log",icon="error")
 
 
             
@@ -287,7 +296,7 @@ class ResumePositionUpdater():
         currentBuffer = []
         msg = ''
         depth = 0
-        while not xbmc.abortRequested:
+        while not monitor.abortRequested():
             chunk = self.s.recv(1)
             currentBuffer.append(chunk)
             if chunk == '{':
@@ -299,6 +308,22 @@ class ResumePositionUpdater():
                     self.handleMsg(msg)
                     currentBuffer = []
         self.s.close()
+
+        
+    def GUIShowNotification(self,message,icon=addon_icon,displaytime=5000,synchronous=True):
+        if tracing: xbmc.log('%s GUIShowNotification(%s,%d,%s)' % (addon_name,message,int(displaytime),str(synchronous)), xbmc.LOGDEBUG)
+        result=None
+        params = {"title":addon_name,"message":message,"displaytime":int(displaytime),"image":icon}
+        request= {"jsonrpc":"2.0","method":"GUI.ShowNotification","params":params,"id":1}
+        requestStr=json.dumps(request)
+        if tracing: xbmc.log("%s request: %s" % (addon_name,requestStr),xbmc.LOGDEBUG)
+        response = xbmc.executeJSONRPC(requestStr )
+        if tracing: xbmc.log('%s response: %s' % (addon_name,response), xbmc.LOGDEBUG)       
+        if synchronous:
+            sleep(int(displaytime))
+        if tracing: xbmc.log('%s GUIShowNotification: complete' % (addon_name), xbmc.LOGDEBUG)       
+        return result
+
 
 # -------------------------- Message Event Handlers ----------------------------------------  
 # 
@@ -344,16 +369,28 @@ class ResumePositionUpdater():
      
     def OnUpdate(self,jsonmsg):
         self.logEvent(jsonmsg)
-        updateWatchedAtEnd = addon.getSetting('updatewatchedatend') == 'true'
-        #TODO: how about the watched flag and position?
-        if updateWatchedAtEnd and 'playcount' in jsonmsg['params']['data']:
+        updateWatchedOnWatchedState = addon.getSetting('updateonwatchedstate') == 'true'
+        updateOnWatchedPositionReset = addon.getSetting('updateonpositionreset') == 'true'
+        if  'playcount' in jsonmsg['params']['data']:
+            if updateWatchedOnWatchedState:
+                playerState = self.selectPlayerStateForMessage(jsonmsg)
+                if playerState is None:
+                    playerState = ResumePositionUpdater.PlayerState(-1)
+                    playerState.setMedia(self.getItemTypeParameter(jsonmsg),self.getItemidParameter(jsonmsg))
+                playcount = jsonmsg['params']['data']['playcount']
+                if playcount is not None and playerState and playerState.nfoFile:
+                    self.CollisionTolerantPlayerNfoUpdate(playerState,self.SetNfoPlayCountCallback,playcount)
+        elif updateOnWatchedPositionReset:
+            # the event does not carry the resume position so if we don't get the playcount
+            # the position might have been reset. So look in the DB to see if it was. If so
+            # remove it from the nfo as well
             playerState = self.selectPlayerStateForMessage(jsonmsg)
             if playerState is None:
                 playerState = ResumePositionUpdater.PlayerState(-1)
-                playerState.setMedia(self.getItemTypeParameter(jsonmsg),self.getItemidParameter(jsonmsg))
-            playcount = jsonmsg['params']['data']['playcount']
-            if playcount is not None and playerState and playerState.nfoFile:
-                self.CollisionTolerantPlayerNfoUpdate(playerState,self.SetNfoPlayCountCallback,playcount)
+                playerState.setMedia(self.getDataTypeParameter(jsonmsg),self.getDataIdParameter(jsonmsg))
+                playerState.position=playerState.LookupPositionInDb()
+                self.CollisionTolerantPlayerNfoUpdate(playerState,self.SavePositionToNfoCallback)
+
 
     def OnAVStart(self,jsonmsg):
         self.logEvent(jsonmsg)
@@ -469,6 +506,26 @@ class ResumePositionUpdater():
                         (addon_name, jsonmsg, e),xbmc.LOGDEBUG)
         return None
          
+    def getDataTypeParameter(self,jsonmsg):
+        try:
+            itemType = jsonmsg["params"]["data"]["type"]
+            return itemType
+        except Exception as e:
+            pass
+            if tracing: xbmc.log('%s bad or missing JSON params data type %s %s' %\
+                        (addon_name, jsonmsg, e),xbmc.LOGDEBUG)
+        return None
+         
+    def getDataIdParameter(self,jsonmsg):
+        try:
+            playerid = int(jsonmsg["params"]["data"]["id"])
+            return playerid
+        except Exception as e:
+            pass
+            if tracing: xbmc.log('%s bad or missing JSON params data id %s %s' %\
+                        (addon_name, jsonmsg, e),xbmc.LOGDEBUG)
+        return None
+        
     def getItemTypeParameter(self,jsonmsg):
         try:
             itemType = jsonmsg["params"]["data"]["item"]["type"]
@@ -590,7 +647,7 @@ class ResumePositionUpdater():
             self.callback = callback
             self.playerState = playerState
             self.threadName = threading.currentThread().name
-
+ 
         def computeNextTime(self,now):
             self.nextTime += self.period
             if self.nextTime < now:
@@ -620,13 +677,12 @@ class ResumePositionUpdater():
     def PeriodicUpdate(self,playerState,tasks):
         threadName = threading.current_thread().name
         playerState.running = True
-        abortRequested = False
 
         now = time()
         maxSleep=0.1
 
         try:
-            while playerState.running:
+            while playerState.running and not monitor.abortRequested():
                 # micronap til next tick while ready for aborts or stop requests
                 nextTick = self.NextTick(tasks,time())
                 now = time()
@@ -635,14 +691,13 @@ class ResumePositionUpdater():
                     timeToSleep = max(0.01,min(maxSleep, timeTilNextTick))
                     sleep(timeToSleep)
                     now = time()  
-                    abortRequested = self.monitor.abortRequested()
-                    if abortRequested : 
+                    if monitor.abortRequested() : 
                         playerState.running = False
                         if tracing: xbmc.log('%s thread %s abort request received' % \
                             (addon_name,threadName), \
                                 xbmc.LOGDEBUG)
                 # we're at t nextTick, execute any tasks that are ready to go
-                if not abortRequested and playerState.running:
+                if not monitor.abortRequested() and playerState.running:
                     playerState.position = self.GetPosition(playerState.playerid)
                     for task in tasks:
                         if tracing: xbmc.log("%s" % (task),xbmc.LOGDEBUG)
@@ -655,7 +710,7 @@ class ResumePositionUpdater():
                             if tracing: xbmc.log("%s task.nextTime=%f" %(addon_name,task.nextTime),xbmc.LOGDEBUG)
             # thread is stopping
             updateNfoOnStop = addon.getSetting('updatenfoonstop') == "true"
-            if not abortRequested and updateNfoOnStop and playerState.handleOnStop:
+            if not monitor.abortRequested() and updateNfoOnStop and playerState.handleOnStop:
                 if tracing: xbmc.log('%s thread %s saving to NFO on stop' % \
                             (addon_name,threadName), \
                                 xbmc.LOGDEBUG)
@@ -672,10 +727,9 @@ class ResumePositionUpdater():
                 traceback.format_exception_only(exc_type, exc_value)))
             for tracemsg in traceback.format_tb(exc_traceback):
                 xbmc.log('{0} {1}'.format(addon_name,tracemsg))
-            notification_msg = "{0} thread {1} failed with {2}".format( addon_name, threading.currentThread().getName(),\
-                traceback.format_exception_only(exc_type, exc_value))
-            xbmc.executebuiltin('Notification(%s, Error: %s, %d, %s)'%(addon_name,notification_msg, int(delay), addon_icon))
-            xbmc.sleep(int(delay))
+            if addon.getSetting('notifyonfault') == 'true':
+                notification_msg = "thread {0} failed, check kodi.log".format( threading.currentThread().getName())
+                self.GUIShowNotification(notification_msg,"error")
         finally:
             playerState.running = False
             playerState.handleOnStop = False
@@ -770,7 +824,10 @@ class ResumePositionUpdater():
         if tracing: xbmc.log("%s save position response %s" % (addon_name,msg), \
             xbmc.LOGDEBUG)
         jsonmsg = json.loads(msg)
-        return  "result" in jsonmsg and jsonmsg["result"] == "Ok" 
+        result =   "result" in jsonmsg and jsonmsg["result"] == "Ok" 
+        if addon.getSetting('notifyondbupdate')=='true':
+            self.GUIShowNotification('DB resume updated')
+        return result
 
 
     def SaveMoviePositionToDb(self, mediaId, resumePoint):
@@ -831,6 +888,8 @@ class ResumePositionUpdater():
             if  success:
                 if changes:
                     if tracing: xbmc.log('%s updated %s' % (addon_name,playerState.nfoFile),xbmc.LOGDEBUG)
+                    if addon.getSetting('notifyonnfoupdate')=='true':
+                        self.GUIShowNotification('NFO updated')
                 else:
                     if tracing: xbmc.log("%s no changes to %s needed" %(addon_name, playerState.nfoFile), xbmc.LOGDEBUG)
             else:
@@ -869,14 +928,15 @@ class ResumePositionUpdater():
         if tracing: xbmc.log("%s thread %s SavePositionToNfoCallback(%s)" % (addon_name,threading.current_thread().name,playerState),xbmc.LOGDEBUG)
         success=False
         dirty=False
-        if playerState.position:
-            root = dom.getroot()
+        root = dom.getroot()
+        if playerState.position and playerState.position[1] > playerState.position[0]:
             (resumeElement,dirty) = self.findOrCreateElement(root,'resume', True)
             dirty = self.SetSimpleElement(resumeElement,'position',playerState.position[0]) or dirty
             dirty = self.SetSimpleElement(resumeElement,'total',playerState.position[1]) or dirty
             success=True
         else:
-            if tracing: xbmc.log("%s thread %s SavePositionToNfoCallback failed: no known position" % (addon_name,threading.current_thread().name),xbmc.LOGDEBUG)
+            dirty = self.RemoveElement(root,'resume') or dirty
+            success=True
         return (success,dirty)
  
  # ------------- XML file and DOMUtility methods ------------------------------------------------------
@@ -900,7 +960,10 @@ class ResumePositionUpdater():
         element = parentElement.find(elementName)
         if element is not None:
             parentElement.remove(element)
+            if tracing: xbmc.log("%s RemoveElement(%s,%s) succeeded" % (addon_name,parentElement, elementName), xbmc.LOGDEBUG)
             dirty = True
+        else:
+            if tracing: xbmc.log("%s RemoveElement(%s,%s) did nothign, element does not exist" % (addon_name,parentElement, elementName), xbmc.LOGDEBUG)
         return dirty
 
 
