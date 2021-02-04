@@ -67,7 +67,7 @@ class ResumePositionUpdater():
         self.XBMCPORT = int(addon.getSetting('xbmcport'))
         
         self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.s.setblocking(1)
+        self.s.settimeout(0.1)
         xbmc.sleep(1000)
         try:
             self.s.connect((self.XBMCIP, self.XBMCPORT))
@@ -297,30 +297,36 @@ class ResumePositionUpdater():
         msg = ''
         depth = 0
         while not monitor.abortRequested():
-            chunk = self.s.recv(1)
-            currentBuffer.append(chunk)
-            if chunk == '{':
-                depth += 1
-            elif chunk == '}':
-                depth -= 1
-                if not depth:
-                    msg = ''.join(currentBuffer)
-                    self.handleMsg(msg)
-                    currentBuffer = []
+            try:
+                chunk = self.s.recv(1)
+                currentBuffer.append(chunk)
+                if chunk == '{':
+                    depth += 1
+                elif chunk == '}':
+                    depth -= 1
+                    if not depth:
+                        msg = ''.join(currentBuffer)
+                        self.handleMsg(msg)
+                        currentBuffer = []
+            except socket.timeout:
+                 pass
         self.s.close()
 
         
     def GUIShowNotification(self,message,icon=addon_icon,displaytime=5000,synchronous=True):
         if tracing: xbmc.log('%s GUIShowNotification(%s,%d,%s)' % (addon_name,message,int(displaytime),str(synchronous)), xbmc.LOGDEBUG)
         result=None
-        params = {"title":addon_name,"message":message,"displaytime":int(displaytime),"image":icon}
-        request= {"jsonrpc":"2.0","method":"GUI.ShowNotification","params":params,"id":1}
-        requestStr=json.dumps(request)
-        if tracing: xbmc.log("%s request: %s" % (addon_name,requestStr),xbmc.LOGDEBUG)
-        response = xbmc.executeJSONRPC(requestStr )
-        if tracing: xbmc.log('%s response: %s' % (addon_name,response), xbmc.LOGDEBUG)       
-        if synchronous:
-            sleep(int(displaytime))
+        if not monitor.abortRequested():
+            params = {"title":addon_name,"message":message,"displaytime":int(displaytime),"image":icon}
+            request= {"jsonrpc":"2.0","method":"GUI.ShowNotification","params":params,"id":1}
+            requestStr=json.dumps(request)
+            requestStartTime = time()
+            if tracing: xbmc.log("%s request: %s" % (addon_name,requestStr),xbmc.LOGDEBUG)
+            response = xbmc.executeJSONRPC(requestStr )
+            if tracing: xbmc.log('%s response: %s' % (addon_name,response), xbmc.LOGDEBUG)       
+            if synchronous :
+                sleepTime = time()+displaytime/1000.0-requestStartTime
+                if sleepTime > 0: sleep(sleepTime)
         if tracing: xbmc.log('%s GUIShowNotification: complete' % (addon_name), xbmc.LOGDEBUG)       
         return result
 
@@ -1128,4 +1134,5 @@ class ResumePositionUpdater():
 if __name__ == '__main__':
     WU = ResumePositionUpdater()
     WU.listen()
+    if tracing: xbmc.log("%s socket listen thread exiting" % (addon_name),xbmc.LOGDEBUG)    
     del WU
