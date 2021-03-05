@@ -20,7 +20,7 @@ import xml.etree.ElementTree as ET
 import threading
 from time import sleep
 from time import time
-from xml.dom import minidom
+#from xml.dom import minidom
 from os import path
 import random
 import traceback, sys
@@ -165,13 +165,13 @@ class ResumePositionUpdater():
             result=None
             try:
                 if self.mediaType == u'movie':
-                    request='{"jsonrpc":"2.0","method":"VideoLibrary.GetMovieDetails","params":{"movieid":%d,"properties":[\"%s\"]},"id":1}' %(self.mediaId,propertyName)
+                    request=u'{"jsonrpc":"2.0","method":"VideoLibrary.GetMovieDetails","params":{"movieid":%d,"properties":[\"%s\"]},"id":1}' %(self.mediaId,propertyName)
                     if tracing: xbmc.log("%s request: %s" % (addon_name,request),xbmc.LOGDEBUG)
                     response = xbmc.executeJSONRPC(request )
                     if tracing: xbmc.log("%s response: %s" % (addon_name,response),xbmc.LOGDEBUG)
                     result = json.loads(response)["result"]["moviedetails"][propertyName]
                 elif self.mediaType == u'episode':
-                    request='{"jsonrpc":"2.0","method":"VideoLibrary.GetEpisodeDetails","params":{"episodeid":%d,"properties":[\"%s\"]},"id":1}' %(self.mediaId,propertyName) 
+                    request=u'{"jsonrpc":"2.0","method":"VideoLibrary.GetEpisodeDetails","params":{"episodeid":%d,"properties":[\"%s\"]},"id":1}' %(self.mediaId,propertyName) 
                     if tracing: xbmc.log("%s request: %s" % (addon_name,request),xbmc.LOGDEBUG)
                     response = xbmc.executeJSONRPC(request)
                     if tracing: xbmc.log("%s response: %s" % (addon_name,response),xbmc.LOGDEBUG)
@@ -300,12 +300,13 @@ class ResumePositionUpdater():
             try:
                 chunk = self.s.recv(1)
                 currentBuffer.append(chunk)
-                if chunk == '{':
+
+                if chunk == b'{':
                     depth += 1
-                elif chunk == '}':
+                elif chunk == b'}':
                     depth -= 1
                     if not depth:
-                        msg = ''.join(currentBuffer)
+                        msg = b''.join(currentBuffer).decode("UTF-8")
                         self.handleMsg(msg)
                         currentBuffer = []
             except socket.timeout:
@@ -1133,6 +1134,7 @@ class ResumePositionUpdater():
 # ----------------------------------------------------------------------------------------
 if __name__ == '__main__':
     WU = ResumePositionUpdater()
+    if tracing: xbmc.log("%s socket listen thread starting" % (addon_name),xbmc.LOGDEBUG)    
     WU.listen()
     if tracing: xbmc.log("%s socket listen thread exiting" % (addon_name),xbmc.LOGDEBUG)    
     del WU
