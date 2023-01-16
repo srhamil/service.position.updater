@@ -292,6 +292,8 @@ class ResumePositionUpdater():
 
             
 
+    # reads UTF-8 encoded JSON messages and calls handleMsg when one is
+    # completely received
     def listen(self):
         currentBuffer = []
         msg = ''
